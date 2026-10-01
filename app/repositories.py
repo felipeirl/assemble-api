@@ -154,6 +154,9 @@ class CharacterRepository:
     def upsert(self, character_id: str, data: dict[str, Any]) -> None:
         self._store.set(f"characters/{character_id}", data, merge=True)
 
+    def replace(self, character_id: str, data: dict[str, Any]) -> None:
+        self._store.set(f"characters/{character_id}", data)
+
     def eligible(self) -> list[Document]:
         return self._store.query("characters", filters=(("tier", "in", ELIGIBLE_TIERS),))
 

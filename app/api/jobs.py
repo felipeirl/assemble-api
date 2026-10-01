@@ -1,0 +1,17 @@
+from fastapi import APIRouter, BackgroundTasks, Depends, Response
+
+from app.auth import require_jobs_key
+from app.container import ContainerDep
+from app.errors import ApiError
+
+ACCEPTED = 202
+
+router = APIRouter(prefix="/jobs", dependencies=[Depends(require_jobs_key)])
+
+
+@router.post("/ingest", status_code=ACCEPTED)
+def ingest(background: BackgroundTasks, container: ContainerDep) -> Response:
+    if container.ingest is None:
+        raise ApiError("provider_unavailable")
+    background.add_task(container.job_runner.run_exclusive, "ingest", container.ingest.run)
+    return Response(status_code=ACCEPTED)

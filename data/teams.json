@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "_comment": "Equipe da Comic Vine / Superhero API (nome) -> enum Team. Comparação sem caixa, sem pontuação e sem artigo 'The'. Equipe ausente da tabela é ignorada. 'Solo' só quando a fonte indica que não há equipe.",
+  "teams": {
+    "Avengers": [
+      "Avengers", "New Avengers", "Mighty Avengers", "Secret Avengers", "West Coast Avengers",
+      "Young Avengers", "Uncanny Avengers", "Avengers Academy", "Dark Avengers"
+    ],
+    "XMen": [
+      "X-Men", "Uncanny X-Men", "Astonishing X-Men", "X-Force", "X-Factor", "New Mutants",
+      "Excalibur", "X-Men Blue", "X-Men Gold"
+    ],
+    "FantasticFour": ["Fantastic Four", "Future Foundation"],
+    "Guardians": ["Guardians of the Galaxy"],
+    "Shield": ["S.H.I.E.L.D.", "SHIELD"],
+    "Defenders": ["Defenders", "Secret Defenders", "New Defenders"]
+  }
+}

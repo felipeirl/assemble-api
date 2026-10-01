@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "_comment": "Poder da Comic Vine (nome) -> família. Comparação sem caixa e sem pontuação. Poder ausente da tabela é ignorado, nunca adivinhado. Revisar e ampliar com os nomes reais vistos na ingestão.",
+  "families": {
+    "Strength": ["Super Strength", "Superhuman Strength", "Enhanced Strength", "Strength"],
+    "Flight": ["Flight", "Levitation", "Gliding"],
+    "Speed": ["Super Speed", "Superhuman Speed", "Enhanced Speed", "Speed"],
+    "Mind": [
+      "Telepathy", "Telekinesis", "Mind Control", "Psionic", "Psychic", "Precognition",
+      "Empathy", "Astral Projection", "Illusions"
+    ],
+    "Energy": [
+      "Energy Blasts", "Energy Manipulation", "Energy Absorption", "Weather Control",
+      "Electricity Control", "Fire Control", "Pyrokinesis", "Cryokinesis", "Ice Manipulation",
+      "Light Manipulation", "Radiation Manipulation", "Force Field", "Optic Blast"
+    ],
+    "Magic": ["Magic", "Sorcery", "Mysticism", "Spellcasting", "Witchcraft", "Chaos Magic"],
+    "AgilityCombat": [
+      "Agility", "Enhanced Agility", "Superhuman Agility", "Martial Arts", "Weapon Master",
+      "Marksmanship", "Acrobatics", "Expert Combatant", "Swordsmanship", "Wall Crawling",
+      "Danger Sense"
+    ],
+    "Healing": ["Healing", "Healing Factor", "Regeneration", "Accelerated Healing", "Immortality"],
+    "Shapeshifting": [
+      "Shape Shifting", "Shapeshifting", "Size Changing", "Elasticity", "Density Control",
+      "Transformation", "Stretching"
+    ],
+    "TechGadgets": ["Power Suit", "Gadgets", "Technopathy", "Technopath", "Cybernetics", "Weapon-based Powers"]
+  }
+}

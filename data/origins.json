@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "_comment": "Origem da Comic Vine (nome) -> enum Origin. Origem ausente da tabela fica sem valor.",
+  "origins": {
+    "Human": "Human",
+    "Mutant": "Mutant",
+    "Alien": "Alien",
+    "Robot": "Robot",
+    "Radiation": "Radiation",
+    "God/Eternal": "GodEternal",
+    "Animal": "Animal",
+    "Cosmic": "Cosmic",
+    "Infection": "Infection",
+    "Other": "Other"
+  }
+}

@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     jobs_key: SecretStr | None = None
     default_timezone: str = "America/Sao_Paulo"
 
+    # Ingestão (seção 9.1)
+    ingest_max_requests_per_resource: int = 190
+    ingest_request_interval_seconds: float = 1.0
+    ingest_refresh_days: int = 30
+    tier_b_min_appearances: int = 50
+    bio_max_chars: int = 2000
+    personality_max_chars: int = 2000
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -8,12 +8,13 @@ dependencies = [
     "uvicorn",
     "pydantic-settings",
     "firebase-admin>=7.7.0",
+    "httpx>=0.28.1",
+    "litellm>=1.103.2",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
-    "httpx",
     "ruff",
 ]
 
