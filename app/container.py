@@ -1,11 +1,24 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
+from functools import cached_property
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 
+from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
 from app.config import Settings
+from app.domain.match import MatchWeights
 from app.jobs import JobRunner
+from app.repositories import (
+    CharacterRepository,
+    DecisionRepository,
+    DeckRepository,
+    MatchRepository,
+    UserRepository,
+)
+from app.services.decisions import DecisionService
+from app.services.deck import DeckService
 from app.store.base import DocumentStore
 
 if TYPE_CHECKING:
@@ -25,6 +38,56 @@ class Container:
     clock: Clock
     ingest: "IngestService | None" = None
     job_runner: JobRunner = field(default_factory=JobRunner)
+
+    @cached_property
+    def users(self) -> UserRepository:
+        return UserRepository(self.store)
+
+    @cached_property
+    def decisions(self) -> DecisionRepository:
+        return DecisionRepository(self.store)
+
+    @cached_property
+    def matches(self) -> MatchRepository:
+        return MatchRepository(self.store)
+
+    @cached_property
+    def characters(self) -> CharacterRepository:
+        return CharacterRepository(self.store)
+
+    @cached_property
+    def catalog(self) -> CharacterCatalog:
+        ttl = timedelta(seconds=self.settings.catalog_cache_seconds)
+        return CharacterCatalog(self.characters, self.clock, ttl)
+
+    @cached_property
+    def deck_service(self) -> DeckService:
+        return DeckService(
+            catalog=self.catalog,
+            users=self.users,
+            decisions=self.decisions,
+            decks=DeckRepository(self.store),
+            clock=self.clock,
+            deck_size=self.settings.deck_size,
+        )
+
+    @cached_property
+    def decision_service(self) -> DecisionService:
+        settings = self.settings
+        return DecisionService(
+            catalog=self.catalog,
+            users=self.users,
+            decisions=self.decisions,
+            matches=self.matches,
+            deck=self.deck_service,
+            clock=self.clock,
+            weights=MatchWeights(
+                compatibility=settings.match_weight_compatibility,
+                affinity=settings.match_weight_affinity,
+                chance=settings.match_weight_chance,
+                cutoff=settings.match_cutoff,
+            ),
+        )
 
 
 def build_container(settings: Settings) -> Container:

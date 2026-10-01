@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     bio_max_chars: int = 2000
     personality_max_chars: int = 2000
 
+    # Baralho diário (seção 8)
+    deck_size: int = 30
+    catalog_cache_seconds: int = 600
+
+    # Decisão de match (seção 7) — valores iniciais, a calibrar
+    match_weight_compatibility: float = 0.6
+    match_weight_affinity: float = 0.3
+    match_weight_chance: float = 0.1
+    match_cutoff: float = 0.55
+
 
 @lru_cache
 def get_settings() -> Settings:
