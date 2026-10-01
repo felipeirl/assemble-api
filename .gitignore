@@ -1,0 +1,30 @@
+# Segredos e credenciais
+.env
+*.env
+!.env.example
+*service-account*.json
+*firebase-adminsdk*.json
+credentials*.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Material anterior à reescrita (backend Java, histórico, docs do app)
+backup-pre-reescrita/
+
+# Editor / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs locais do Claude Code
+.claude/session-logs/
