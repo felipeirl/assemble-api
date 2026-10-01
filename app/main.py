@@ -1,8 +1,29 @@
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-app = FastAPI(title="Assemble Backend")
+from app.config import get_settings
+from app.container import Container, build_container
+from app.errors import install_error_handlers
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def create_app(container_factory: Callable[[], Container] | None = None) -> FastAPI:
+    factory = container_factory or (lambda: build_container(get_settings()))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.container = factory()
+        yield
+
+    app = FastAPI(title="Assemble Backend", lifespan=lifespan)
+    install_error_handlers(app)
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app
+
+
+app = create_app()

@@ -1,0 +1,66 @@
+from datetime import UTC, datetime
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.auth import InvalidTokenError
+from app.config import Settings
+from app.container import Container
+from app.main import create_app
+from app.store.memory import MemoryStore
+
+JOBS_KEY = "jobs-secret"
+
+
+class FakeTokenVerifier:
+    """Aceita tokens no formato `token-<uid>`."""
+
+    def __init__(self) -> None:
+        self.deleted: list[str] = []
+
+    def verify(self, token: str) -> str:
+        if not token.startswith("token-"):
+            raise InvalidTokenError("token inválido")
+        return token.removeprefix("token-")
+
+    def delete_user(self, uid: str) -> None:
+        self.deleted.append(uid)
+
+
+class FixedClock:
+    def __init__(self, now: datetime) -> None:
+        self.current = now
+
+    def now(self) -> datetime:
+        return self.current
+
+
+@pytest.fixture
+def clock() -> FixedClock:
+    return FixedClock(datetime(2026, 10, 1, 15, 0, tzinfo=UTC))
+
+
+@pytest.fixture
+def container(clock: FixedClock) -> Container:
+    settings = Settings(_env_file=None, jobs_key=JOBS_KEY)
+    return Container(
+        settings=settings,
+        store=MemoryStore(),
+        token_verifier=FakeTokenVerifier(),
+        clock=clock,
+    )
+
+
+@pytest.fixture
+def app(container: Container):
+    return create_app(lambda: container)
+
+
+@pytest.fixture
+def client(app) -> TestClient:
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def auth_header(uid: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer token-{uid}"}
