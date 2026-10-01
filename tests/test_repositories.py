@@ -75,15 +75,20 @@ def test_recent_messages_are_oldest_first_and_limited():
     assert [message_id for message_id, _ in recent] == ["m2", "m3", "m4"]
 
 
-def test_hide_all_matches():
+def test_hidden_matches_before_cutoff_and_tree_delete():
     store = MemoryStore()
     matches = MatchRepository(store)
-    matches.create("u1", "storm", {"hidden": False})
-    matches.create("u1", "rocket", {"hidden": False})
+    matches.create("u1", "storm", {"hidden": True, "hiddenAt": NOW - timedelta(days=31)})
+    matches.create("u1", "rocket", {"hidden": True, "hiddenAt": NOW})
+    store.set("users/u1/matches/storm/messages/m1", {"text": "oi"})
 
-    matches.hide_all("u1")
+    old = matches.hidden_before("u1", NOW - timedelta(days=30))
+    assert [cid for cid, _ in old] == ["storm"]
 
-    assert all(data["hidden"] for _, data in matches.for_user("u1"))
+    matches.delete_with_messages("u1", "storm")
+    assert store.get("users/u1/matches/storm") is None
+    assert store.get("users/u1/matches/storm/messages/m1") is None
+    assert matches.get("u1", "rocket") is not None
 
 
 def test_eligible_characters_are_tier_a_or_b():

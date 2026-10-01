@@ -14,6 +14,7 @@ from app.domain.match import MatchWeights
 from app.jobs import JobRunner
 from app.rate_limit import SlidingWindowLimiter
 from app.repositories import (
+    AccessLogRepository,
     CharacterRepository,
     DecisionRepository,
     DeckRepository,
@@ -22,6 +23,7 @@ from app.repositories import (
     PersonaRepository,
     UserRepository,
 )
+from app.services.account import AccountService
 from app.services.conversation import ConversationService
 from app.services.decisions import DecisionService
 from app.services.deck import DeckService
@@ -71,6 +73,17 @@ class Container:
             ),
             clock=self.clock,
             history_limit=self.settings.chat_history_limit,
+        )
+
+    @cached_property
+    def account_service(self) -> AccountService:
+        return AccountService(
+            users=self.users,
+            matches=self.matches,
+            messages=MessageRepository(self.store),
+            access_logs=AccessLogRepository(self.store),
+            auth_admin=self.token_verifier,
+            clock=self.clock,
         )
 
     @cached_property

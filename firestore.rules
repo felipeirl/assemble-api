@@ -13,6 +13,12 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    // Conta em carência ("Delete account"): dados fora de uso até reativar ou apagar.
+    function isDeactivated(uid) {
+      let path = /databases/$(database)/documents/users/$(uid);
+      return exists(path) && get(path).data.get('status', 'active') == 'deactivated';
+    }
+
     function profileFields() {
       return ['displayName', 'bio', 'avatarPreset', 'createdAt',
               'onboardingCompletedAt', 'preferences', 'aiConsent'];
@@ -74,13 +80,13 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileFields())
         && validProfile(request.resource.data);
 
-      // Leitura das subcoleções (decisions, matches, messages, decks).
+      // Leitura das subcoleções (decisions, matches, messages, decks), só com conta ativa.
       match /{subcollection=**} {
-        allow read: if isOwner(uid);
+        allow read: if isOwner(uid) && !isDeactivated(uid);
       }
 
       match /matches/{characterId} {
-        allow update: if isOwner(uid)
+        allow update: if isOwner(uid) && !isDeactivated(uid)
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['lastReadAt', 'profileUnlockSeenAt'])
           && (!('lastReadAt' in request.resource.data)

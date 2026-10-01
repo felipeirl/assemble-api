@@ -24,3 +24,10 @@ def personas(background: BackgroundTasks, container: ContainerDep) -> Response:
         raise ApiError("provider_unavailable")
     background.add_task(container.job_runner.run_exclusive, "personas", service.run)
     return Response(status_code=ACCEPTED)
+
+
+@router.post("/purge", status_code=ACCEPTED)
+def purge(background: BackgroundTasks, container: ContainerDep) -> Response:
+    service = container.account_service
+    background.add_task(container.job_runner.run_exclusive, "purge", service.purge)
+    return Response(status_code=ACCEPTED)

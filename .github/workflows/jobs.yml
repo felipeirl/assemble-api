@@ -1,0 +1,50 @@
+# Jobs agendados do backend (seções 11 e 13). Segredos em Settings → Secrets → Actions:
+#   ASSEMBLE_API_URL  ex.: https://<usuario>-<space>.hf.space
+#   JOBS_KEY          mesmo valor da variável JOBS_KEY do Space
+name: Scheduled jobs
+
+on:
+  schedule:
+    - cron: "0 6 * * *"    # 03:00 em São Paulo: ingestão da Comic Vine
+    - cron: "30 6 * * *"   # 03:30: purge (contas após a carência, conversas ocultas, logs)
+    - cron: "0 8 * * *"    # 05:00: fichas de persona (depois da ingestão)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Job a executar"
+        required: true
+        type: choice
+        options: [ingest, personas, purge]
+
+permissions: {}
+
+jobs:
+  call:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Escolher job
+        id: pick
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_JOB: ${{ inputs.job }}
+        run: |
+          case "$SCHEDULE" in
+            "0 6 * * *")  job=ingest ;;
+            "30 6 * * *") job=purge ;;
+            "0 8 * * *")  job=personas ;;
+            *)            job="$INPUT_JOB" ;;
+          esac
+          echo "job=$job" >> "$GITHUB_OUTPUT"
+
+      # O Space dorme após 48h sem uso: as novas tentativas dão tempo de ele acordar.
+      - name: Chamar /jobs/${{ steps.pick.outputs.job }}
+        env:
+          API_URL: ${{ secrets.ASSEMBLE_API_URL }}
+          JOBS_KEY: ${{ secrets.JOBS_KEY }}
+          JOB: ${{ steps.pick.outputs.job }}
+        run: |
+          curl --fail --silent --show-error \
+            --retry 8 --retry-delay 30 --retry-all-errors --max-time 120 \
+            -X POST -H "X-Jobs-Key: $JOBS_KEY" \
+            "$API_URL/jobs/$JOB"

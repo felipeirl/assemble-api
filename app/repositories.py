@@ -63,6 +63,9 @@ class UserRepository:
     def delete_everything(self, uid: str) -> None:
         self._store.delete_tree(user_path(uid))
 
+    def all_ids(self) -> list[str]:
+        return [uid for uid, _ in self._store.query("users")]
+
 
 class DecisionRepository:
     def __init__(self, store: DocumentStore) -> None:
@@ -101,9 +104,11 @@ class MatchRepository:
     def for_user(self, uid: str) -> list[Document]:
         return self._store.query(matches_path(uid))
 
-    def hide_all(self, uid: str) -> None:
-        for character_id, _ in self.for_user(uid):
-            self.update(uid, character_id, {"hidden": True})
+    def hidden_before(self, uid: str, cutoff: datetime) -> list[Document]:
+        return self._store.query(matches_path(uid), filters=(("hiddenAt", "<", cutoff),))
+
+    def delete_with_messages(self, uid: str, character_id: str) -> None:
+        self._store.delete_tree(f"{matches_path(uid)}/{character_id}")
 
 
 class MessageRepository:
