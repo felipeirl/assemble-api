@@ -3,7 +3,7 @@ from fastapi import APIRouter, Response
 from app.api.schemas import DecisionRequest, Deck, DeckCard, MatchResult
 from app.auth import ActiveUid
 from app.container import ContainerDep
-from app.request_context import IdempotencyKey, UserTimezone
+from app.request_context import IdempotencyKey, Locale, UserTimezone
 
 NO_CONTENT = 204
 
@@ -26,9 +26,10 @@ def post_decision(
     uid: ActiveUid,
     tz: UserTimezone,
     key: IdempotencyKey,
+    locale: Locale,
     container: ContainerDep,
 ):
-    result = container.decision_service.decide(uid, body.characterId, body.choice, key, tz)
+    result = container.decision_service.decide(uid, body.characterId, body.choice, key, tz, locale)
     if result is None:
         return Response(status_code=NO_CONTENT)
     return result

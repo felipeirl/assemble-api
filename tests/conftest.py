@@ -8,6 +8,7 @@ from app.config import Settings
 from app.container import Container
 from app.main import create_app
 from app.store.memory import MemoryStore
+from tests.fakes import FakeGuardrail, FakeLlm, chat_reply
 
 JOBS_KEY = "jobs-secret"
 
@@ -42,12 +43,19 @@ def clock() -> FixedClock:
 
 @pytest.fixture
 def container(clock: FixedClock) -> Container:
-    settings = Settings(_env_file=None, jobs_key=JOBS_KEY)
+    settings = Settings(
+        _env_file=None,
+        jobs_key=JOBS_KEY,
+        chat_model="chat-main",
+        chat_fallback_model="chat-reserve",
+    )
     return Container(
         settings=settings,
         store=MemoryStore(),
         token_verifier=FakeTokenVerifier(),
         clock=clock,
+        llm=FakeLlm(chat_reply),
+        guardrail=FakeGuardrail(),
     )
 
 

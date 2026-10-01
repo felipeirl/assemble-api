@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 
+from app.ai.chat import ChatEngine
 from app.ai.personas import PersonaService
 from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
@@ -16,14 +17,17 @@ from app.repositories import (
     DecisionRepository,
     DeckRepository,
     MatchRepository,
+    MessageRepository,
     PersonaRepository,
     UserRepository,
 )
+from app.services.conversation import ConversationService
 from app.services.decisions import DecisionService
 from app.services.deck import DeckService
 from app.store.base import DocumentStore
 
 if TYPE_CHECKING:
+    from app.ai.guardrail import Guardrail
     from app.ai.llm import LlmClient
     from app.auth import TokenVerifier
     from app.catalog.ingest import IngestService
@@ -41,7 +45,25 @@ class Container:
     clock: Clock
     ingest: "IngestService | None" = None
     llm: "LlmClient | None" = None
+    guardrail: "Guardrail | None" = None
     job_runner: JobRunner = field(default_factory=JobRunner)
+
+    @cached_property
+    def chat_engine(self) -> ChatEngine | None:
+        models = [m for m in (self.settings.chat_model, self.settings.chat_fallback_model) if m]
+        if self.llm is None or self.guardrail is None or not models:
+            return None
+        return ChatEngine(self.llm, self.guardrail, models)
+
+    @cached_property
+    def conversation_service(self) -> ConversationService:
+        return ConversationService(
+            chat=self.chat_engine,
+            personas=self.personas,
+            matches=self.matches,
+            messages=MessageRepository(self.store),
+            clock=self.clock,
+        )
 
     @cached_property
     def personas(self) -> PersonaRepository:
@@ -102,6 +124,7 @@ class Container:
             decisions=self.decisions,
             matches=self.matches,
             deck=self.deck_service,
+            conversation=self.conversation_service,
             clock=self.clock,
             weights=MatchWeights(
                 compatibility=settings.match_weight_compatibility,
@@ -128,7 +151,16 @@ def build_container(settings: Settings) -> Container:
         clock=clock,
         ingest=_build_ingest(settings, store, clock),
         llm=_build_llm(settings),
+        guardrail=_build_guardrail(settings),
     )
+
+
+def _build_guardrail(settings: Settings):
+    from app.ai.guardrail import LayaGuardrail
+
+    if not settings.guardrail_enabled:
+        return None
+    return LayaGuardrail(threshold=settings.guardrail_threshold)
 
 
 def _build_llm(settings: Settings):

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # IA (seções 9.3 e 10)
     llm_timeout_seconds: float = 30.0
     persona_batch_size: int = 20
+    guardrail_enabled: bool = True
+    guardrail_threshold: float = 0.5
+    chat_history_limit: int = 20
+    messages_per_hour: int = 60
 
     # Decisão de match (seção 7) — valores iniciais, a calibrar
     match_weight_compatibility: float = 0.6

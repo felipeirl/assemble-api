@@ -12,6 +12,7 @@ from app.domain.match import MatchWeights, decide_match, seeded_chance
 from app.domain.models import CharacterTraits
 from app.errors import ApiError
 from app.repositories import DecisionRepository, MatchRepository, UserRepository
+from app.services.conversation import ConversationService
 from app.services.deck import DeckService
 
 
@@ -23,6 +24,7 @@ class DecisionService:
         decisions: DecisionRepository,
         matches: MatchRepository,
         deck: DeckService,
+        conversation: ConversationService,
         clock: Clock,
         weights: MatchWeights,
     ) -> None:
@@ -31,6 +33,7 @@ class DecisionService:
         self._decisions = decisions
         self._matches = matches
         self._deck = deck
+        self._conversation = conversation
         self._clock = clock
         self._weights = weights
 
@@ -41,13 +44,14 @@ class DecisionService:
         choice: Choice,
         idempotency_key: str | None,
         tz: ZoneInfo,
+        locale: str,
     ) -> MatchResult | None:
         """PASS devolve None (204); ASSEMBLE devolve o MatchResult."""
         character = self._catalog.get(character_id)
         if character is None:
             raise ApiError("not_found")
         if self._decisions.get(uid, character_id) is not None:
-            return self._replay(uid, character_id, character, idempotency_key)
+            return self._replay(uid, character_id, character, idempotency_key, locale)
 
         date, _ = self._deck.ensure_deck(uid, tz)
         decision: dict[str, Any] = {
@@ -60,7 +64,7 @@ class DecisionService:
 
         if choice is Choice.PASS:
             if not self._decisions.create(uid, character_id, decision):
-                return self._replay(uid, character_id, character, idempotency_key)
+                return self._replay(uid, character_id, character, idempotency_key, locale)
             self._deck.record_pass(uid, date, character_id)
             return None
 
@@ -74,29 +78,50 @@ class DecisionService:
             weights=self._weights,
         )
         decision["matched"] = outcome.matched
+        if outcome.matched:
+            # Guardado na decisão para refazer a conexão se a fala de abertura falhar.
+            decision["match"] = {
+                "score": compatibility,
+                "matchChance": outcome.chance,
+                "decisionVersion": outcome.version,
+                "whyYouMatch": [
+                    {"category": m.category.value, "traits": m.traits}
+                    for m in breakdown(prefs, traits)
+                ],
+            }
         if not self._decisions.create(uid, character_id, decision):
-            return self._replay(uid, character_id, character, idempotency_key)
+            return self._replay(uid, character_id, character, idempotency_key, locale)
         if not outcome.matched:
             return MatchResult(matched=False)
+        match = self._ensure_match(uid, character_id, character, decision["match"], locale)
+        return match_result(character_id, character, match)
 
-        why = [{"category": m.category.value, "traits": m.traits} for m in breakdown(prefs, traits)]
-        now = self._clock.now()
+    def _ensure_match(
+        self,
+        uid: str,
+        character_id: str,
+        character: dict[str, Any],
+        decided: dict[str, Any],
+        locale: str,
+    ) -> dict[str, Any]:
+        """Cria a conexão com a fala de abertura antes de responder (idempotente)."""
+        existing = self._matches.get(uid, character_id)
+        if existing is not None:
+            return existing
+        opener = self._conversation.generate_opener(character_id, character, locale)
         match: dict[str, Any] = {
-            "score": compatibility,
-            "matchChance": outcome.chance,
-            "decisionVersion": outcome.version,
-            "whyYouMatch": why,
-            "createdAt": now,
-            "lastMessageAt": now,
+            **decided,
+            "createdAt": self._clock.now(),
             "characterName": character["name"],
             "userMessageCount": 0,
-            "suggestions": [],
             "hidden": False,
+            **self._conversation.save_opener(uid, character_id, opener),
         }
         if character.get("imageUrl"):
             match["imageUrl"] = character["imageUrl"]
-        self._matches.create(uid, character_id, match)
-        return match_result(character_id, character, self._matches.get(uid, character_id))
+        if not self._matches.create(uid, character_id, match):
+            return self._matches.get(uid, character_id) or match
+        return match
 
     def _replay(
         self,
@@ -104,6 +129,7 @@ class DecisionService:
         character_id: str,
         character: dict[str, Any],
         idempotency_key: str | None,
+        locale: str,
     ) -> MatchResult | None:
         decision = self._decisions.get(uid, character_id) or {}
         if idempotency_key is None or decision.get("idempotencyKey") != idempotency_key:
@@ -112,9 +138,7 @@ class DecisionService:
             return None
         if not decision.get("matched"):
             return MatchResult(matched=False)
-        match = self._matches.get(uid, character_id)
-        if match is None:
-            raise ApiError("already_decided")
+        match = self._ensure_match(uid, character_id, character, decision["match"], locale)
         return match_result(character_id, character, match)
 
 

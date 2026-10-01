@@ -1,7 +1,10 @@
 import json
 from collections.abc import Callable
 
+from app.ai.guardrail import ALLOWED, GuardrailUnavailableError, GuardVerdict
 from app.ai.llm import LlmResponse, LlmUnavailableError
+
+DEFAULT_SUGGESTIONS = ["Como é voar?", "Qual sua missão?", "Algum conselho?"]
 
 
 class FakeLlm:
@@ -22,3 +25,51 @@ class FakeLlm:
 
 def json_reply(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False)
+
+
+def chat_reply(messages: list[dict]) -> str:
+    last = messages[-1]["content"]
+    return json_reply({"reply": f"Resposta a: {last[:40]}", "suggestions": DEFAULT_SUGGESTIONS})
+
+
+class FakeGuardrail:
+    """Bloqueia por palavras-gatilho; `affinity_value` alimenta a decisão de match."""
+
+    INPUT_TRIGGERS = {
+        "jailbreak": "jailbreak",
+        "suicid": "self_harm",
+        "@": "personal_data",
+        "namorar": "romance",
+    }
+    OUTPUT_TRIGGERS = {"canônico": "canon_claim", "sou uma IA": "out_of_role"}
+    SOURCE_TRIGGERS = {"IGNORE PREVIOUS": "injection"}
+
+    def __init__(self, affinity_value: float = 0.5, unavailable: bool = False) -> None:
+        self.affinity_value = affinity_value
+        self.unavailable = unavailable
+        self.checked: list[tuple[str, str]] = []
+
+    def check_input(self, text):
+        return self._check("input", text, self.INPUT_TRIGGERS)
+
+    def check_output(self, text):
+        return self._check("output", text, self.OUTPUT_TRIGGERS)
+
+    def check_source(self, text):
+        return self._check("source", text, self.SOURCE_TRIGGERS)
+
+    def affinity(self, user_profile, persona):
+        self._raise_if_unavailable()
+        return self.affinity_value
+
+    def _check(self, kind, text, triggers):
+        self._raise_if_unavailable()
+        self.checked.append((kind, text))
+        for trigger, reason in triggers.items():
+            if trigger in text:
+                return GuardVerdict(blocked=True, reason=reason)
+        return ALLOWED
+
+    def _raise_if_unavailable(self):
+        if self.unavailable:
+            raise GuardrailUnavailableError("fake")

@@ -11,6 +11,8 @@ dependencies = [
     "httpx>=0.28.1",
     "litellm>=1.103.2",
     "tzdata>=2026.4",
+    "laya>=0.3.23",
+    "torch>=2.14.1",
 ]
 
 [dependency-groups]
@@ -31,3 +33,12 @@ testpaths = ["tests"]
 
 [tool.uv]
 package = false
+
+# torch só para CPU (o Space não tem GPU; evita baixar as bibliotecas CUDA)
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

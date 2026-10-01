@@ -1,3 +1,4 @@
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
@@ -14,7 +15,12 @@ def create_app(container_factory: Callable[[], Container] | None = None) -> Fast
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.container = factory()
+        container = factory()
+        app.state.container = container
+        warm_up = getattr(container.guardrail, "warm_up", None)
+        if warm_up is not None:
+            # O Laya é pesado: carrega em segundo plano para não atrasar o boot do Space.
+            threading.Thread(target=warm_up, name="laya-warm-up", daemon=True).start()
         yield
 
     app = FastAPI(title="Assemble Backend", lifespan=lifespan)
