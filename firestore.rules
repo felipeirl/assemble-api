@@ -1,0 +1,98 @@
+rules_version = '2';
+
+// Assemble — regras do Firestore.
+// O backend usa o Admin SDK e ignora estas regras; elas valem só para o app.
+// Leitura: o dono lê o próprio users/{uid} e subcoleções.
+// Escrita do app: perfil, preferências e aiConsent em users/{uid};
+// lastReadAt e profileUnlockSeenAt em matches/*. Todo o resto é negado.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function profileFields() {
+      return ['displayName', 'bio', 'avatarPreset', 'createdAt',
+              'onboardingCompletedAt', 'preferences', 'aiConsent'];
+    }
+
+    function enumList(values, allowed) {
+      return values is list
+        && values.size() <= allowed.size()
+        && values.toSet().size() == values.size()
+        && allowed.hasAll(values);
+    }
+
+    function validPreferences(p) {
+      return p is map
+        && p.keys().hasOnly(['origins', 'powers', 'teams', 'styles', 'fame'])
+        && (!('origins' in p) || enumList(p.origins,
+              ['Human', 'Mutant', 'Alien', 'Robot', 'Radiation', 'GodEternal',
+               'Animal', 'Cosmic', 'Infection', 'Other']))
+        && (!('powers' in p) || enumList(p.powers,
+              ['Strength', 'Flight', 'Speed', 'Mind', 'Energy', 'Magic',
+               'AgilityCombat', 'Healing', 'Shapeshifting', 'TechGadgets']))
+        && (!('teams' in p) || enumList(p.teams,
+              ['Avengers', 'XMen', 'FantasticFour', 'Guardians', 'Shield',
+               'Defenders', 'Solo']))
+        && (!('styles' in p) || enumList(p.styles,
+              ['Science', 'Humor', 'Leadership', 'Loner', 'Dark', 'Idealist',
+               'Rebel', 'Strategist']))
+        && (!('fame' in p) || (p.fame is number && p.fame >= 0 && p.fame <= 1));
+    }
+
+    function validAiConsent(c) {
+      return c is map
+        && c.keys().hasOnly(['acceptedAt', 'version'])
+        && c.acceptedAt is timestamp
+        && c.version is string && c.version.size() <= 20;
+    }
+
+    // Valida só os campos presentes no documento resultante.
+    function validProfile(d) {
+      return (!('displayName' in d) || (d.displayName is string && d.displayName.size() <= 60))
+        && (!('bio' in d) || (d.bio is string && d.bio.size() <= 500))
+        && (!('avatarPreset' in d)
+              || (d.avatarPreset is int && d.avatarPreset >= 0 && d.avatarPreset <= 5))
+        && (!('createdAt' in d) || d.createdAt is timestamp)
+        && (!('onboardingCompletedAt' in d) || d.onboardingCompletedAt is timestamp)
+        && (!('preferences' in d) || validPreferences(d.preferences))
+        && (!('aiConsent' in d) || validAiConsent(d.aiConsent));
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(profileFields())
+        && validProfile(request.resource.data);
+
+      // status e deactivatedAt são do backend: o app nunca os altera.
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileFields())
+        && validProfile(request.resource.data);
+
+      // Leitura das subcoleções (decisions, matches, messages, decks).
+      match /{subcollection=**} {
+        allow read: if isOwner(uid);
+      }
+
+      match /matches/{characterId} {
+        allow update: if isOwner(uid)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['lastReadAt', 'profileUnlockSeenAt'])
+          && (!('lastReadAt' in request.resource.data)
+                || request.resource.data.lastReadAt is timestamp)
+          && (!('profileUnlockSeenAt' in request.resource.data)
+                || request.resource.data.profileUnlockSeenAt is timestamp);
+      }
+    }
+
+    // characters, personas, accessLogs e qualquer outro caminho: sem acesso do app.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
