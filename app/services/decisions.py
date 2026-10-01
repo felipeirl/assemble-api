@@ -1,19 +1,32 @@
 """Pass/Assemble: decisão única por par (uid, characterId), idempotente por Idempotency-Key."""
 
+import json
+import logging
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.ai.guardrail import Guardrail, GuardrailUnavailableError
 from app.api.schemas import MatchCharacter, MatchResult
 from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
 from app.domain.compatibility import breakdown, score
 from app.domain.enums import Choice
 from app.domain.match import MatchWeights, decide_match, seeded_chance
-from app.domain.models import CharacterTraits
+from app.domain.models import CharacterTraits, Preferences
 from app.errors import ApiError
-from app.repositories import DecisionRepository, MatchRepository, UserRepository
+from app.repositories import (
+    DecisionRepository,
+    MatchRepository,
+    PersonaRepository,
+    UserRepository,
+)
 from app.services.conversation import ConversationService
 from app.services.deck import DeckService
+
+PERSONA_AFFINITY_KEYS = ("voice", "values", "relationships", "boundaries", "styles")
+USER_BIO_MAX_CHARS = 500
+
+logger = logging.getLogger(__name__)
 
 
 class DecisionService:
@@ -25,6 +38,8 @@ class DecisionService:
         matches: MatchRepository,
         deck: DeckService,
         conversation: ConversationService,
+        personas: PersonaRepository,
+        guardrail: Guardrail | None,
         clock: Clock,
         weights: MatchWeights,
     ) -> None:
@@ -34,6 +49,8 @@ class DecisionService:
         self._matches = matches
         self._deck = deck
         self._conversation = conversation
+        self._personas = personas
+        self._guardrail = guardrail
         self._clock = clock
         self._weights = weights
 
@@ -73,7 +90,7 @@ class DecisionService:
         compatibility = score(prefs, traits)
         outcome = decide_match(
             compatibility,
-            affinity=None,
+            affinity=self._affinity(uid, character_id, prefs),
             luck=seeded_chance(uid, character_id),
             weights=self._weights,
         )
@@ -95,6 +112,24 @@ class DecisionService:
             return MatchResult(matched=False)
         match = self._ensure_match(uid, character_id, character, decision["match"], locale)
         return match_result(character_id, character, match)
+
+    def _affinity(self, uid: str, character_id: str, prefs: Preferences) -> float | None:
+        """Afinidade da persona pelo usuário (Laya); None = modo degradado, sem inventar."""
+        persona = self._personas.get(character_id)
+        if self._guardrail is None or persona is None:
+            return None
+        user = self._users.get(uid) or {}
+        profile = {"preferences": prefs.model_dump(mode="json")}
+        if user.get("bio"):
+            profile["bio"] = str(user["bio"])[:USER_BIO_MAX_CHARS]
+        sheet = {key: persona[key] for key in PERSONA_AFFINITY_KEYS if persona.get(key)}
+        try:
+            return self._guardrail.affinity(
+                json.dumps(profile, ensure_ascii=False), json.dumps(sheet, ensure_ascii=False)
+            )
+        except GuardrailUnavailableError:
+            logger.warning("Laya indisponível; decisão de match no modo degradado.")
+            return None
 
     def _ensure_match(
         self,

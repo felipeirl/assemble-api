@@ -125,6 +125,8 @@ class Container:
             matches=self.matches,
             deck=self.deck_service,
             conversation=self.conversation_service,
+            personas=self.personas,
+            guardrail=self.guardrail,
             clock=self.clock,
             weights=MatchWeights(
                 compatibility=settings.match_weight_compatibility,
