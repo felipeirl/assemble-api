@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import deck, jobs
+from app.api import conversations, deck, jobs
 from app.config import get_settings
 from app.container import Container, build_container
 from app.errors import install_error_handlers
@@ -26,6 +26,7 @@ def create_app(container_factory: Callable[[], Container] | None = None) -> Fast
     app = FastAPI(title="Assemble Backend", lifespan=lifespan)
     install_error_handlers(app)
     app.include_router(deck.router)
+    app.include_router(conversations.router)
     app.include_router(jobs.router)
 
     @app.get("/health")

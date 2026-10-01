@@ -12,6 +12,7 @@ from app.clock import Clock
 from app.config import Settings
 from app.domain.match import MatchWeights
 from app.jobs import JobRunner
+from app.rate_limit import SlidingWindowLimiter
 from app.repositories import (
     CharacterRepository,
     DecisionRepository,
@@ -24,6 +25,7 @@ from app.repositories import (
 from app.services.conversation import ConversationService
 from app.services.decisions import DecisionService
 from app.services.deck import DeckService
+from app.services.profiles import ProfileService
 from app.store.base import DocumentStore
 
 if TYPE_CHECKING:
@@ -33,6 +35,7 @@ if TYPE_CHECKING:
     from app.catalog.ingest import IngestService
 
 HTTP_TIMEOUT_SECONDS = 30.0
+MESSAGE_LIMIT_WINDOW = timedelta(hours=1)
 
 
 @dataclass
@@ -60,9 +63,24 @@ class Container:
         return ConversationService(
             chat=self.chat_engine,
             personas=self.personas,
+            characters=self.characters,
             matches=self.matches,
             messages=MessageRepository(self.store),
+            limiter=SlidingWindowLimiter(
+                self.settings.messages_per_hour, MESSAGE_LIMIT_WINDOW, self.clock
+            ),
             clock=self.clock,
+            history_limit=self.settings.chat_history_limit,
+        )
+
+    @cached_property
+    def profile_service(self) -> ProfileService:
+        return ProfileService(
+            catalog=self.catalog,
+            characters=self.characters,
+            users=self.users,
+            decisions=self.decisions,
+            matches=self.matches,
         )
 
     @cached_property

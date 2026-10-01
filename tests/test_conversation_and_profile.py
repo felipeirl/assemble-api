@@ -1,0 +1,235 @@
+from datetime import timedelta
+
+import pytest
+
+from tests.conftest import auth_header
+from tests.factories import seed_characters, seed_user
+from tests.fakes import DEFAULT_SUGGESTIONS
+
+UID = "u1"
+HEADERS = {**auth_header(UID), "Accept-Language": "pt-BR"}
+
+
+@pytest.fixture
+def connected(container, client):
+    seed_characters(container.store)
+    seed_user(container.store, UID)
+    container.settings.match_cutoff = 0.0
+    response = client.post(
+        "/v2/decisions", json={"characterId": "storm", "choice": "ASSEMBLE"}, headers=HEADERS
+    )
+    assert response.json()["matched"] is True
+    return container
+
+
+def send(client, text, key=None, connection="storm"):
+    headers = {**HEADERS, **({"Idempotency-Key": key} if key else {})}
+    return client.post(
+        f"/v2/connections/{connection}/messages", json={"text": text}, headers=headers
+    )
+
+
+def messages(container, connection="storm"):
+    docs = container.store.query(f"users/{UID}/matches/{connection}/messages", order_by="createdAt")
+    return [doc for _, doc in docs]
+
+
+# --- GET /v2/characters/{id} --------------------------------------------------------------
+
+
+def test_preview_without_connection_hides_bio_and_compatibility(client, container):
+    seed_characters(container.store)
+    seed_user(container.store, UID)
+
+    response = client.get("/v2/characters/storm", headers=HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "characterId": "storm",
+        "name": "Storm",
+        "imageUrl": "https://img/storm.jpg",
+        "traitsInCommon": ["Mutant", "XMen", "Leadership"],
+        "connected": False,
+    }
+
+
+def test_full_profile_with_connection(client, connected):
+    response = client.get("/v2/characters/storm", headers=HEADERS)
+
+    body = response.json()
+    assert body["connected"] is True
+    assert body["connectionId"] == "storm"
+    assert body["score"] == 67
+    assert body["whyYouMatch"] == [
+        {"category": "origin", "traits": ["Mutant"]},
+        {"category": "teams", "traits": ["XMen"]},
+        {"category": "style", "traits": ["Leadership"]},
+    ]
+    assert body["facts"] == {
+        "realName": "Ororo Munroe",
+        "origin": "Mutant",
+        "powers": ["Flight", "Energy"],
+        "teams": ["XMen"],
+        "firstAppearance": "Giant-Size X-Men #1",
+        "bio": "Ororo Munroe é uma mutante que controla o clima.",
+    }
+    assert body["source"] == "Comic Vine"
+    assert body["sourceUrl"].startswith("https://comicvine")
+    assert "traitsInCommon" not in body
+
+
+def test_full_profile_omits_missing_facts(client, connected):
+    connected.store.update("characters/storm", {"realName": None, "firstAppearance": ""})
+
+    facts = client.get("/v2/characters/storm", headers=HEADERS).json()["facts"]
+
+    assert "realName" not in facts and "firstAppearance" not in facts
+
+
+def test_unknown_character_is_404(client, container):
+    seed_characters(container.store)
+
+    assert client.get("/v2/characters/nobody", headers=HEADERS).status_code == 404
+
+
+# --- POST /v2/connections/{id}/messages ---------------------------------------------------
+
+
+def test_send_message_returns_reply_and_updates_connection(client, connected, clock):
+    response = send(client, "  Oi, Storm!  ")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["userMessage"]["author"] == "USER"
+    assert body["userMessage"]["text"] == "Oi, Storm!"
+    assert body["userMessage"]["fictional"] is False
+    assert body["reply"]["author"] == "CHARACTER"
+    assert body["reply"]["fictional"] is True
+    assert body["reply"]["blocked"] is False
+    assert body["reply"]["text"] == "Resposta a: Oi, Storm!"
+    assert body["suggestions"] == DEFAULT_SUGGESTIONS
+
+    match = connected.store.get(f"users/{UID}/matches/storm")
+    assert match["userMessageCount"] == 1
+    assert match["lastMessagePreview"] == "Resposta a: Oi, Storm!"
+    stored = messages(connected)
+    assert [m["author"] for m in stored] == ["CHARACTER", "USER", "CHARACTER"]
+
+
+def test_history_is_sent_to_the_model(client, connected):
+    send(client, "Primeira")
+    send(client, "Segunda")
+
+    last_call = connected.llm.calls[-1]["messages"]
+    contents = [m["content"] for m in last_call[1:]]
+    assert contents[-1] == "Segunda"
+    assert "Primeira" in contents
+
+
+def test_history_is_limited(client, connected):
+    connected.settings.chat_history_limit = 2
+    connected.__dict__.pop("conversation_service", None)
+    send(client, "a")
+    send(client, "b")
+
+    send(client, "c")
+
+    assert len(connected.llm.calls[-1]["messages"]) == 1 + 2 + 1
+
+
+def test_blocked_input_is_422_without_storing_text(client, connected):
+    response = send(client, "meu email é ana@x.com")
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "blocked_content"
+    blocked = messages(connected)[-1]
+    assert blocked["blocked"] is True
+    assert blocked["blockReason"] == "personal_data"
+    assert blocked["text"] == ""
+    assert connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"] == 0
+
+
+def test_self_harm_gets_referral_and_text_is_not_stored(client, connected):
+    response = send(client, "penso em suicidio")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert "188" in body["reply"]["text"]
+    assert body["reply"]["blocked"] is True
+    stored_user = messages(connected)[-2]
+    assert stored_user["text"] == ""
+    assert stored_user["blockReason"] == "self_harm"
+
+
+def test_text_length_rules(client, connected):
+    assert send(client, "   ").status_code == 400
+    assert send(client, "x" * 1001).status_code == 400
+    assert send(client, "x" * 1000).status_code == 200
+
+
+def test_unknown_or_hidden_connection_is_404(client, connected):
+    assert send(client, "oi", connection="rocket").status_code == 404
+
+    connected.store.update(f"users/{UID}/matches/storm", {"hidden": True})
+
+    assert send(client, "oi").status_code == 404
+
+
+def test_same_idempotency_key_returns_same_reply_without_new_call(client, connected):
+    first = send(client, "Oi", key="k1").json()
+    calls = len(connected.llm.calls)
+
+    second = send(client, "Oi", key="k1")
+
+    assert second.status_code == 200
+    assert second.json() == first
+    assert len(connected.llm.calls) == calls
+    assert connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"] == 1
+
+
+def test_provider_down_is_503_and_nothing_is_stored(client, connected):
+    before = len(messages(connected))
+    connected.llm.fail = True
+
+    response = send(client, "Oi")
+
+    assert response.status_code == 503
+    assert len(messages(connected)) == before
+
+
+def test_rate_limit_returns_429_with_retry_after(client, connected, clock):
+    connected.settings.messages_per_hour = 2
+    connected.__dict__.pop("conversation_service", None)
+    send(client, "1")
+    clock.current += timedelta(minutes=10)
+    send(client, "2")
+
+    response = send(client, "3")
+
+    assert response.status_code == 429
+    assert response.json()["error"] == "rate_limited"
+    assert response.headers["Retry-After"] == str(50 * 60)
+
+    clock.current += timedelta(minutes=51)
+    assert send(client, "4").status_code == 200
+
+
+# --- GET /v2/me/stats ---------------------------------------------------------------------
+
+
+def test_stats_count_connections_messages_seen_and_teams(client, connected):
+    client.post(
+        "/v2/decisions", json={"characterId": "iron-man", "choice": "ASSEMBLE"}, headers=HEADERS
+    )
+    client.post("/v2/decisions", json={"characterId": "rocket", "choice": "PASS"}, headers=HEADERS)
+    send(client, "oi")
+    send(client, "tudo bem?")
+
+    response = client.get("/v2/me/stats", headers=HEADERS)
+
+    assert response.json() == {
+        "connections": 2,
+        "messagesSent": 2,
+        "charactersSeen": 3,
+        "distinctTeams": 2,
+    }

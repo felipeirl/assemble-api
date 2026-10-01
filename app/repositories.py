@@ -113,6 +113,9 @@ class MessageRepository:
     def add(self, uid: str, character_id: str, message_id: str, data: dict[str, Any]) -> None:
         self._store.set(f"{messages_path(uid, character_id)}/{message_id}", data)
 
+    def get(self, uid: str, character_id: str, message_id: str) -> dict[str, Any] | None:
+        return self._store.get(f"{messages_path(uid, character_id)}/{message_id}")
+
     def recent(self, uid: str, character_id: str, limit: int) -> list[Document]:
         """Últimas `limit` mensagens, da mais antiga para a mais recente."""
         newest_first = self._store.query(
