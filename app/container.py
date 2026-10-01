@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 
+from app.ai.personas import PersonaService
 from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
 from app.config import Settings
@@ -15,6 +16,7 @@ from app.repositories import (
     DecisionRepository,
     DeckRepository,
     MatchRepository,
+    PersonaRepository,
     UserRepository,
 )
 from app.services.decisions import DecisionService
@@ -22,6 +24,7 @@ from app.services.deck import DeckService
 from app.store.base import DocumentStore
 
 if TYPE_CHECKING:
+    from app.ai.llm import LlmClient
     from app.auth import TokenVerifier
     from app.catalog.ingest import IngestService
 
@@ -37,7 +40,26 @@ class Container:
     token_verifier: "TokenVerifier"
     clock: Clock
     ingest: "IngestService | None" = None
+    llm: "LlmClient | None" = None
     job_runner: JobRunner = field(default_factory=JobRunner)
+
+    @cached_property
+    def personas(self) -> PersonaRepository:
+        return PersonaRepository(self.store)
+
+    @cached_property
+    def persona_service(self) -> PersonaService | None:
+        if self.llm is None or not self.settings.persona_model:
+            return None
+        return PersonaService(
+            llm=self.llm,
+            model=self.settings.persona_model,
+            characters=self.characters,
+            personas=self.personas,
+            catalog=self.catalog,
+            clock=self.clock,
+            batch_size=self.settings.persona_batch_size,
+        )
 
     @cached_property
     def users(self) -> UserRepository:
@@ -105,6 +127,19 @@ def build_container(settings: Settings) -> Container:
         token_verifier=FirebaseTokenVerifier(firebase_app),
         clock=clock,
         ingest=_build_ingest(settings, store, clock),
+        llm=_build_llm(settings),
+    )
+
+
+def _build_llm(settings: Settings):
+    from app.ai.llm import LiteLlmClient
+
+    if settings.commandcode_api_key is None or not settings.commandcode_base_url:
+        return None
+    return LiteLlmClient(
+        api_key=settings.commandcode_api_key.get_secret_value(),
+        base_url=settings.commandcode_base_url,
+        timeout_seconds=settings.llm_timeout_seconds,
     )
 
 

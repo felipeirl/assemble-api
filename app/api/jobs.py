@@ -15,3 +15,12 @@ def ingest(background: BackgroundTasks, container: ContainerDep) -> Response:
         raise ApiError("provider_unavailable")
     background.add_task(container.job_runner.run_exclusive, "ingest", container.ingest.run)
     return Response(status_code=ACCEPTED)
+
+
+@router.post("/personas", status_code=ACCEPTED)
+def personas(background: BackgroundTasks, container: ContainerDep) -> Response:
+    service = container.persona_service
+    if service is None:
+        raise ApiError("provider_unavailable")
+    background.add_task(container.job_runner.run_exclusive, "personas", service.run)
+    return Response(status_code=ACCEPTED)
