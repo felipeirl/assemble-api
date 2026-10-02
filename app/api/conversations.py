@@ -1,6 +1,12 @@
 from fastapi import APIRouter
 
-from app.api.schemas import CharacterReply, CharacterView, SendMessageRequest, UserStats
+from app.api.schemas import (
+    CharacterIdPath,
+    CharacterReply,
+    CharacterView,
+    SendMessageRequest,
+    UserStats,
+)
 from app.auth import ActiveUid
 from app.container import ContainerDep
 from app.request_context import IdempotencyKey, Locale
@@ -13,7 +19,9 @@ router = APIRouter(prefix="/v2")
     response_model=CharacterView,
     response_model_exclude_none=True,
 )
-def get_character(character_id: str, uid: ActiveUid, container: ContainerDep) -> CharacterView:
+def get_character(
+    character_id: CharacterIdPath, uid: ActiveUid, container: ContainerDep
+) -> CharacterView:
     return container.profile_service.character(uid, character_id)
 
 
@@ -23,7 +31,7 @@ def get_character(character_id: str, uid: ActiveUid, container: ContainerDep) ->
     response_model_exclude_none=True,
 )
 def send_message(
-    connection_id: str,
+    connection_id: CharacterIdPath,
     body: SendMessageRequest,
     uid: ActiveUid,
     key: IdempotencyKey,

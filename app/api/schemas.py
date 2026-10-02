@@ -1,13 +1,19 @@
 """Objetos do contrato da API V2 (campos em camelCase, ausentes não são enviados)."""
 
 from datetime import datetime
+from typing import Annotated
 
+from fastapi import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.enums import Author, Category, Choice
 
-CHARACTER_ID_MAX_LENGTH = 200
+# IDs viram parte de caminhos do Firestore: só letras, números, "-" e "_" (sem "/").
+ID_PATTERN = r"^[A-Za-z0-9_-]{1,200}$"
 MESSAGE_MAX_LENGTH = 1000
+
+
+CharacterIdPath = Annotated[str, Path(pattern=ID_PATTERN)]
 
 
 class DeckCard(BaseModel):
@@ -43,7 +49,7 @@ class MatchResult(BaseModel):
 class DecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    characterId: str = Field(min_length=1, max_length=CHARACTER_ID_MAX_LENGTH)
+    characterId: str = Field(pattern=ID_PATTERN)
     choice: Choice
 
 
