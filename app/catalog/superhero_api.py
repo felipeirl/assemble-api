@@ -1,12 +1,13 @@
 """Superhero API (akabab): enriquece personagens que já existem; nunca cria personagem.
 
-Casamento (Assemble-perfis-e-fontes.md §3.1): tabela manual → automático restrito → revisão.
+Casamento (Assemble-perfis-e-fontes.md §3.1): tabela manual → Wikidata → automático restrito
+→ revisão.
 """
 
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -18,6 +19,7 @@ SOURCE_LABEL = "Superhero API"
 SOURCE_URL = "https://akabab.github.io/superhero-api/"
 
 MATCH_MANUAL = "manual"
+MATCH_WIKIDATA = "wikidata"
 MATCH_AUTO = "auto"
 
 ABSENT_VALUES = {"", "-", "null", "0 cm", "0 kg", "no alter egos found."}
@@ -60,12 +62,28 @@ class SuperheroMatch:
     candidates: list[int]
 
 
+class NameBridge(Protocol):
+    def names(self, comicvine_id: int) -> frozenset[str]: ...
+
+
 class SuperheroMatcher:
-    def __init__(self, client: SuperheroApiClient, mappings: Mappings) -> None:
+    def __init__(
+        self,
+        client: SuperheroApiClient,
+        mappings: Mappings,
+        bridge: NameBridge | None = None,
+    ) -> None:
         self._client = client
         self._mappings = mappings
+        self._bridge = bridge
 
-    def match(self, character_id: str, name: str, real_name: str | None) -> SuperheroMatch:
+    def match(
+        self,
+        character_id: str,
+        name: str,
+        real_name: str | None,
+        comicvine_id: int | None = None,
+    ) -> SuperheroMatch:
         entries = self._client.entries()
         if character_id in self._mappings.superhero_matches:
             superhero_id = self._mappings.superhero_matches[character_id]
@@ -77,6 +95,9 @@ class SuperheroMatcher:
             for entry_id, entry in entries.items()
             if normalize(entry.get("name", "")) == normalize(name)
         ]
+        bridged = self._bridged(entries, same_name, comicvine_id)
+        if bridged is not None:
+            return SuperheroMatch(entries[bridged], MATCH_WIKIDATA, [])
         if real_name:
             strict = [
                 entry_id
@@ -89,6 +110,24 @@ class SuperheroMatcher:
             if len(strict) == 1:
                 return SuperheroMatch(entries[strict[0]], MATCH_AUTO, [])
         return SuperheroMatch(None, None, sorted(same_name))
+
+    def _bridged(
+        self, entries: dict[int, dict[str, Any]], same_name: list[int], comicvine_id: int | None
+    ) -> int | None:
+        """Candidato único cujo nome e nome real estão entre os nomes do item do Wikidata."""
+        if self._bridge is None or comicvine_id is None or not same_name:
+            return None
+        names = self._bridge.names(comicvine_id)
+        if not names:
+            return None
+        confirmed = [
+            entry_id
+            for entry_id in same_name
+            if normalize(entries[entry_id].get("biography", {}).get("fullName") or "") in names
+            and entries[entry_id].get("biography", {}).get("publisher")
+            in self._mappings.accepted_publishers
+        ]
+        return confirmed[0] if len(confirmed) == 1 else None
 
 
 def group_affiliations(entry: dict[str, Any]) -> list[str]:

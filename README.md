@@ -136,7 +136,8 @@ Para rodar um job manualmente, use *Actions → Scheduled jobs → Run workflow*
 A Superhero API não tem o ID da Comic Vine. O casamento segue esta ordem (`Assemble-perfis-e-fontes.md` §3.1):
 
 1. a tabela manual `data/superhero_matches.json`;
-2. a regra automática, que exige nome, nome real e editora aceita iguais, com um único candidato.
+2. a ponte Wikidata: o item com o ID da Comic Vine ([P5905](https://www.wikidata.org/wiki/Property:P5905)) traz o rótulo e os apelidos, e o candidato só é aceito se for único com nome real entre esses nomes;
+3. a regra automática, que exige nome, nome real e editora aceita iguais, com um único candidato.
 
 O que não casar fica sem enriquecimento e entra na fila de revisão. Para exportar a fila:
 

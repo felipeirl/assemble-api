@@ -203,7 +203,7 @@ class IngestService:
         name = detail["name"]
         real_name = detail.get("real_name") or None
         personality = self._fandom.personality(name, real_name)
-        superhero = self._superhero.match(character_id, name, real_name)
+        superhero = self._superhero.match(character_id, name, real_name, detail.get("id"))
         teams, teams_source = self._teams(detail, superhero)
         sources = [{"name": COMIC_VINE, "url": detail.get("site_detail_url")}]
         if personality is not None:

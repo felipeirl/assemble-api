@@ -216,6 +216,7 @@ def _build_ingest(settings: Settings, store: DocumentStore, clock: Clock):
     from app.catalog.ingest import IngestService, IngestSettings
     from app.catalog.mapping import load_mappings
     from app.catalog.superhero_api import SuperheroApiClient, SuperheroMatcher
+    from app.catalog.wikidata import WikidataBridge
     from app.repositories import CharacterRepository
 
     if settings.comicvine_api_key is None:
@@ -234,7 +235,11 @@ def _build_ingest(settings: Settings, store: DocumentStore, clock: Clock):
             max_chars=settings.personality_max_chars,
             interval_seconds=settings.ingest_request_interval_seconds,
         ),
-        superhero=SuperheroMatcher(SuperheroApiClient(http), mappings),
+        superhero=SuperheroMatcher(
+            SuperheroApiClient(http),
+            mappings,
+            WikidataBridge(http, settings.ingest_request_interval_seconds),
+        ),
         characters=CharacterRepository(store),
         store=store,
         mappings=mappings,
