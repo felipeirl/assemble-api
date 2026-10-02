@@ -1,10 +1,3 @@
----
-title: Assemble Backend
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Assemble — Backend
 
 Único servidor do app Assemble (Android). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o match e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
@@ -66,7 +59,7 @@ Os testes usam Firestore em memória e falsos para Firebase Auth, LLM e Laya. Ne
 
 ## Variáveis de ambiente
 
-Obrigatórias (segredos ficam no `.env`, em *Variables and secrets* do Space e em *Actions secrets* do GitHub):
+Obrigatórias (segredos ficam no `.env`, no Secret Manager do Google Cloud e em *Actions secrets* do GitHub):
 
 | Variável | Uso |
 |---|---|
@@ -110,23 +103,15 @@ npm install
 npm test
 ```
 
-## Deploy no Hugging Face Space
+## Deploy no Google Cloud Run
 
-O deploy é automático. A cada push na `main`, `.github/workflows/deploy.yml` roda os testes Python e os testes das regras do Firestore. Se tudo passar, espelha o repositório no Space com [`huggingface/hub-sync`](https://huggingface.co/docs/hub/spaces-github-actions). O front matter no topo deste README configura o Space (SDK Docker, porta 7860).
+O deploy é automático. A cada push na `main`, `.github/workflows/deploy.yml` roda os testes Python e os testes das regras do Firestore e, se tudo passar, constrói a imagem, envia ao Artifact Registry e publica no Cloud Run. O passo a passo da configuração do Google Cloud e do GitHub está em `docs/cloud-run.md`.
 
-Configuração (uma vez):
+Pontos de operação:
 
-1. Crie o Space com **SDK Docker** e hardware *CPU basic*.
-2. No Space, cadastre as variáveis obrigatórias em *Settings → Variables and secrets*. Use *Secrets* para chaves e credenciais.
-3. Crie um [token do Hugging Face](https://huggingface.co/settings/tokens) com permissão de escrita.
-4. No GitHub, em *Settings → Secrets and variables → Actions*, cadastre:
-   - o secret `HF_TOKEN` com o token do passo 3;
-   - a variável `HF_SPACE` com o id do Space, ex.: `usuario/assemble-backend`.
-5. Faça um push na `main`, ou use *Actions → Test and deploy → Run workflow*. O Space faz o build do `Dockerfile` sozinho.
-
-Na primeira subida, o Laya baixa os pesos do Hugging Face Hub, com cerca de 1,3 GB. O download acontece em segundo plano e, até terminar, as chamadas de chat e de match esperam o carregamento.
-
-O Space gratuito dorme após 48 h sem uso. Antes de uma demonstração, chame `GET /health` e espere a resposta. A primeira pode levar alguns minutos.
+- O serviço escala a zero. A primeira requisição depois de um período parado leva alguns segundos (partida a frio); antes de uma demonstração, chame `GET /health`.
+- Os pesos do Laya (cerca de 650 MB) ficam dentro da imagem, então a partida a frio não baixa nada.
+- `--max-instances=1` mantém o limite de mensagens e o bloqueio dos jobs coerentes, já que ambos vivem na memória do processo.
 
 ## Jobs agendados (GitHub Actions)
 
@@ -140,8 +125,8 @@ O Space gratuito dorme após 48 h sem uso. Antes de uma demonstração, chame `G
 
 Cadastre em *Settings → Secrets and variables → Actions*:
 
-- `ASSEMBLE_API_URL`: URL do Space, ex.: `https://usuario-assemble.hf.space`
-- `JOBS_KEY`: o mesmo valor do Space
+- `ASSEMBLE_API_URL`: URL do serviço no Cloud Run, ex.: `https://assemble-backend-xxxx.us-central1.run.app`
+- `JOBS_KEY`: o mesmo valor do segredo `assemble-jobs-key` do Secret Manager
 
 Para rodar um job manualmente, use *Actions → Scheduled jobs → Run workflow*. As rotas respondem `202` e o trabalho segue em segundo plano.
 

@@ -1,6 +1,6 @@
 # Jobs agendados do backend (seções 11 e 13). Segredos em Settings → Secrets → Actions:
-#   ASSEMBLE_API_URL  ex.: https://<usuario>-<space>.hf.space
-#   JOBS_KEY          mesmo valor da variável JOBS_KEY do Space
+#   ASSEMBLE_API_URL  URL do serviço no Cloud Run
+#   JOBS_KEY          mesmo valor do segredo assemble-jobs-key (Secret Manager)
 name: Scheduled jobs
 
 on:
@@ -37,7 +37,7 @@ jobs:
           esac
           echo "job=$job" >> "$GITHUB_OUTPUT"
 
-      # O Space dorme após 48h sem uso: as novas tentativas dão tempo de ele acordar.
+      # O Cloud Run escala a zero: as novas tentativas dão tempo de a instância subir.
       - name: Chamar /jobs/${{ steps.pick.outputs.job }}
         env:
           API_URL: ${{ secrets.ASSEMBLE_API_URL }}

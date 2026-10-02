@@ -1,7 +1,5 @@
-# Testa a cada push/PR e, na main, publica no Hugging Face Space (só se tudo passar).
-# Configuração em Settings → Secrets and variables → Actions:
-#   secret   HF_TOKEN  token do Hugging Face com permissão de escrita
-#   variable HF_SPACE  id do Space, ex.: usuario/assemble-backend
+# Testa a cada push/PR e, na main, publica no Google Cloud Run (só se tudo passar).
+# Preparação do GCP e das variáveis do GitHub: docs/cloud-run.md
 name: Test and deploy
 
 on:
@@ -51,15 +49,61 @@ jobs:
     needs: [test, firestore-rules]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     concurrency:
-      group: hf-space-deploy
+      group: cloud-run-deploy
       cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICE: assemble-backend
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/assemble/assemble-backend:${{ github.sha }}
     steps:
       - uses: actions/checkout@v6
-      - uses: huggingface/hub-sync@v0.3.0
+
+      - id: auth
+        uses: google-github-actions/auth@v3
         with:
-          github_repo_id: ${{ github.repository }}
-          huggingface_repo_id: ${{ vars.HF_SPACE }}
-          hf_token: ${{ secrets.HF_TOKEN }}
-          space_sdk: docker
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Build e push da imagem
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          echo "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin "$REGION-docker.pkg.dev"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # Um único processo mantém o limite de mensagens e o bloqueio dos jobs coerentes;
+      # sem limitar a CPU, as tarefas em segundo plano dos /jobs/* e o carregamento do Laya
+      # continuam depois da resposta.
+      - uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+          flags: >-
+            --allow-unauthenticated
+            --no-cpu-throttling
+            --cpu-boost
+            --cpu=1
+            --memory=3Gi
+            --min-instances=0
+            --max-instances=1
+            --concurrency=20
+            --timeout=900
+          env_vars: |
+            COMMANDCODE_BASE_URL=${{ vars.COMMANDCODE_BASE_URL }}
+            CHAT_MODEL=${{ vars.CHAT_MODEL }}
+            CHAT_FALLBACK_MODEL=${{ vars.CHAT_FALLBACK_MODEL }}
+            PERSONA_MODEL=${{ vars.PERSONA_MODEL }}
+            DEFAULT_TIMEZONE=America/Sao_Paulo
+          secrets: |
+            FIREBASE_SERVICE_ACCOUNT_JSON=assemble-firebase-service-account:latest
+            COMICVINE_API_KEY=assemble-comicvine-api-key:latest
+            COMMANDCODE_API_KEY=assemble-commandcode-api-key:latest
+            JOBS_KEY=assemble-jobs-key:latest
