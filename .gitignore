@@ -28,3 +28,8 @@ Thumbs.db
 
 # Logs locais do Claude Code
 .claude/session-logs/
+
+# Testes das regras do Firestore (Node)
+node_modules/
+firebase-debug.log
+firestore-debug.log
