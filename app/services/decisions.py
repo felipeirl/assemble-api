@@ -120,10 +120,12 @@ class DecisionService:
             return None
         user = self._users.get(uid) or {}
         profile = {"preferences": prefs.model_dump(mode="json")}
-        if user.get("bio"):
-            profile["bio"] = str(user["bio"])[:USER_BIO_MAX_CHARS]
         sheet = {key: persona[key] for key in PERSONA_AFFINITY_KEYS if persona.get(key)}
         try:
+            # A bio é escrita pelo usuário: dado não confiável, truncado e checado antes do uso.
+            bio = str(user.get("bio") or "").strip()[:USER_BIO_MAX_CHARS]
+            if bio and not self._guardrail.check_source(bio).blocked:
+                profile["bio"] = bio
             return self._guardrail.affinity(
                 json.dumps(profile, ensure_ascii=False), json.dumps(sheet, ensure_ascii=False)
             )
