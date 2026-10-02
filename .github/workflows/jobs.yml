@@ -1,13 +1,13 @@
-# Jobs agendados do backend (seções 11 e 13). Segredos em Settings → Secrets → Actions:
-#   ASSEMBLE_API_URL  URL do serviço no Cloud Run
-#   JOBS_KEY          mesmo valor do segredo assemble-jobs-key (Secret Manager)
-name: Scheduled jobs
+# Executa um job do backend por demanda (Actions → Jobs → Run workflow).
+# Sem agenda: o backend roda no PC, que não fica ligado o tempo todo (docs/local-run.md).
+# Segredos em Settings → Secrets and variables → Actions:
+#   ASSEMBLE_API_URL  URL pública do backend (o domínio do ngrok)
+#   JOBS_KEY          mesmo valor da JOBS_KEY do .env
+# Para agendar de novo (backend sempre no ar), acrescente em `on:`:
+#   schedule: [{ cron: "0 6 * * *" }]
+name: Jobs
 
 on:
-  schedule:
-    - cron: "0 6 * * *"    # 03:00 em São Paulo: ingestão da Comic Vine
-    - cron: "30 6 * * *"   # 03:30: purge (contas após a carência, conversas ocultas, logs)
-    - cron: "0 8 * * *"    # 05:00: fichas de persona (depois da ingestão)
   workflow_dispatch:
     inputs:
       job:
@@ -23,28 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Escolher job
-        id: pick
-        env:
-          SCHEDULE: ${{ github.event.schedule }}
-          INPUT_JOB: ${{ inputs.job }}
-        run: |
-          case "$SCHEDULE" in
-            "0 6 * * *")  job=ingest ;;
-            "30 6 * * *") job=purge ;;
-            "0 8 * * *")  job=personas ;;
-            *)            job="$INPUT_JOB" ;;
-          esac
-          echo "job=$job" >> "$GITHUB_OUTPUT"
-
-      # O Cloud Run escala a zero: as novas tentativas dão tempo de a instância subir.
-      - name: Chamar /jobs/${{ steps.pick.outputs.job }}
+      - name: Chamar /jobs/${{ inputs.job }}
         env:
           API_URL: ${{ secrets.ASSEMBLE_API_URL }}
           JOBS_KEY: ${{ secrets.JOBS_KEY }}
-          JOB: ${{ steps.pick.outputs.job }}
+          JOB: ${{ inputs.job }}
         run: |
           curl --fail --silent --show-error \
-            --retry 8 --retry-delay 30 --retry-all-errors --max-time 120 \
+            --retry 4 --retry-delay 15 --retry-all-errors --max-time 120 \
             -X POST -H "X-Jobs-Key: $JOBS_KEY" \
             "$API_URL/jobs/$JOB"

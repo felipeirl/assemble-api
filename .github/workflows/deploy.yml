@@ -1,5 +1,6 @@
-# Testa a cada push/PR e, na main, publica no Google Cloud Run (só se tudo passar).
-# Preparação do GCP e das variáveis do GitHub: docs/cloud-run.md
+# Testa a cada push/PR. A publicação no Google Cloud Run é opcional e só roda por
+# execução manual (Actions → Test and deploy → Run workflow). Hoje o backend roda no PC:
+# docs/local-run.md. Preparação do GCP e das variáveis do GitHub: docs/cloud-run.md
 name: Test and deploy
 
 on:
@@ -47,7 +48,7 @@ jobs:
 
   deploy:
     needs: [test, firestore-rules]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:

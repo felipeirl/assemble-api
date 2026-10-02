@@ -103,32 +103,26 @@ npm install
 npm test
 ```
 
-## Deploy no Google Cloud Run
+## Execução e deploy
 
-O deploy é automático. A cada push na `main`, `.github/workflows/deploy.yml` roda os testes Python e os testes das regras do Firestore e, se tudo passar, constrói a imagem, envia ao Artifact Registry e publica no Cloud Run. O passo a passo da configuração do Google Cloud e do GitHub está em `docs/cloud-run.md`.
+**Hoje o backend roda no PC e o celular acessa por um túnel ngrok**: `docs/local-run.md` tem o passo a passo (configuração do `.env`, subir o servidor, abrir o túnel e fazer a carga do catálogo).
 
-Pontos de operação:
+O deploy no Google Cloud Run continua preparado e é opcional: `docs/cloud-run.md` descreve a configuração, e o workflow `Test and deploy` só publica quando é executado manualmente. A cada push na `main` ele roda os testes Python e os testes das regras do Firestore.
 
-- O serviço escala a zero. A primeira requisição depois de um período parado leva alguns segundos (partida a frio); antes de uma demonstração, chame `GET /health`.
-- Os pesos do Laya (cerca de 650 MB) ficam dentro da imagem, então a partida a frio não baixa nada.
-- `--max-instances=1` mantém o limite de mensagens e o bloqueio dos jobs coerentes, já que ambos vivem na memória do processo.
+## Jobs
 
-## Jobs agendados (GitHub Actions)
+| Rota | Função |
+|---|---|
+| `POST /jobs/ingest` | ingestão incremental da Comic Vine |
+| `POST /jobs/personas` | gera fichas de persona pendentes (ordem: ingest, depois personas) |
+| `POST /jobs/purge` | apaga contas após 30 dias, conversas ocultas e logs após 180 dias |
 
-`.github/workflows/jobs.yml` chama, todo dia:
+Todas exigem o header `X-Jobs-Key` e respondem `202`: o trabalho segue em segundo plano. Os jobs **não têm agenda**, porque o backend roda no PC. Execute-os de duas formas:
 
-| Horário (São Paulo) | Rota | Função |
-|---|---|---|
-| 03:00 | `POST /jobs/ingest` | ingestão incremental da Comic Vine |
-| 03:30 | `POST /jobs/purge` | apaga contas após 30 dias, conversas ocultas e logs após 180 dias |
-| 05:00 | `POST /jobs/personas` | gera fichas pendentes |
+- direto no PC, com `Invoke-RestMethod` (`docs/local-run.md`, seção 3);
+- pelo workflow `Jobs` (*Actions → Jobs → Run workflow*), que exige os secrets `ASSEMBLE_API_URL` (o domínio do ngrok) e `JOBS_KEY`, e o PC ligado com o túnel aberto.
 
-Cadastre em *Settings → Secrets and variables → Actions*:
-
-- `ASSEMBLE_API_URL`: URL do serviço no Cloud Run, ex.: `https://assemble-backend-xxxx.us-central1.run.app`
-- `JOBS_KEY`: o mesmo valor do segredo `assemble-jobs-key` do Secret Manager
-
-Para rodar um job manualmente, use *Actions → Scheduled jobs → Run workflow*. As rotas respondem `202` e o trabalho segue em segundo plano.
+Com o backend sempre no ar (Cloud Run), acrescente um `schedule` ao `jobs.yml`.
 
 ## Casamento com a Superhero API
 
