@@ -71,11 +71,126 @@ def test_full_profile_with_connection(client, connected):
         "powers": ["Flight", "Energy"],
         "teams": ["XMen"],
         "firstAppearance": "Giant-Size X-Men #1",
+        "issueAppearances": 4000,
         "bio": "Ororo Munroe é uma mutante que controla o clima.",
     }
-    assert body["source"] == "Comic Vine"
-    assert body["sourceUrl"].startswith("https://comicvine")
+    assert body["sources"] == [
+        {"name": "Comic Vine", "url": "https://comicvine.gamespot.com/storm/4005-1468/"}
+    ]
+    assert "source" not in body and "sourceUrl" not in body
     assert "traitsInCommon" not in body
+
+
+STORM_POWERSTATS = {
+    "intelligence": 75,
+    "strength": 10,
+    "speed": 47,
+    "durability": 30,
+    "power": 88,
+    "combat": 75,
+}
+
+
+def test_full_profile_has_enriched_facts_and_their_sources(client, connected):
+    connected.store.update(
+        "characters/storm",
+        {
+            "aliases": ["Windrider"],
+            "alignment": "Good",
+            "powerstats": STORM_POWERSTATS,
+            "appearance": {"heightCm": 180, "eyeColor": "Blue"},
+            "factSources": {
+                "realName": "ComicVine",
+                "aliases": "SuperheroApi",
+                "powerstats": "SuperheroApi",
+                "placeOfBirth": "SuperheroApi",
+            },
+            "sources": [
+                {"name": "Comic Vine", "url": "https://cv/storm"},
+                {"name": "Superhero API", "url": "https://akabab.github.io/superhero-api/"},
+            ],
+        },
+    )
+
+    body = client.get("/v2/characters/storm", headers=HEADERS).json()
+
+    assert body["facts"]["aliases"] == ["Windrider"]
+    assert body["facts"]["powerstats"] == STORM_POWERSTATS
+    assert body["facts"]["appearance"] == {"heightCm": 180, "eyeColor": "Blue"}
+    # Fonte só dos fatos presentes: placeOfBirth não existe no personagem.
+    assert body["factSources"] == {
+        "realName": "ComicVine",
+        "aliases": "SuperheroApi",
+        "powerstats": "SuperheroApi",
+    }
+    assert [s["name"] for s in body["sources"]] == ["Comic Vine", "Superhero API"]
+
+
+def test_teammates_put_connected_first_and_skip_solo(client, connected):
+    connected.store.set(
+        "characters/cyclops",
+        {"name": "Cyclops", "origin": "Mutant", "teams": ["XMen"], "tier": "A"},
+    )
+    connected.store.set(
+        "characters/loner",
+        {"name": "Loner", "origin": "Human", "teams": ["Solo"], "tier": "B"},
+    )
+    connected.catalog.invalidate()
+    client.post(
+        "/v2/decisions", json={"characterId": "jean-grey", "choice": "ASSEMBLE"}, headers=HEADERS
+    )
+
+    teammates = client.get("/v2/characters/storm", headers=HEADERS).json()["teammates"]
+
+    assert teammates == [
+        {
+            "characterId": "jean-grey",
+            "name": "Jean Grey",
+            "imageUrl": "https://img/jean.jpg",
+            "connected": True,
+        },
+        {"characterId": "cyclops", "name": "Cyclops", "connected": False},
+    ]
+
+
+def test_teammates_are_capped_at_eight(client, connected):
+    for index in range(10):
+        connected.store.set(
+            f"characters/xman-{index}",
+            {"name": f"X {index}", "origin": "Mutant", "teams": ["XMen"], "tier": "B"},
+        )
+    connected.catalog.invalidate()
+
+    teammates = client.get("/v2/characters/storm", headers=HEADERS).json()["teammates"]
+
+    assert len(teammates) == 8
+
+
+def test_compare_with_lists_other_connections_with_powerstats(client, connected):
+    connected.store.update("characters/storm", {"powerstats": STORM_POWERSTATS})
+    connected.store.update("characters/iron-man", {"powerstats": STORM_POWERSTATS})
+    connected.catalog.invalidate()
+    for character_id in ("iron-man", "rocket"):
+        client.post(
+            "/v2/decisions",
+            json={"characterId": character_id, "choice": "ASSEMBLE"},
+            headers=HEADERS,
+        )
+
+    body = client.get("/v2/characters/storm", headers=HEADERS).json()
+
+    assert body["compareWith"] == [
+        {"characterId": "iron-man", "name": "Iron Man", "powerstats": STORM_POWERSTATS}
+    ]
+
+
+def test_preview_hides_every_new_field(client, connected):
+    connected.store.update("characters/rocket", {"powerstats": STORM_POWERSTATS})
+    connected.catalog.invalidate()
+
+    body = client.get("/v2/characters/rocket", headers=HEADERS).json()
+
+    assert set(body) == {"characterId", "name", "traitsInCommon", "connected"}
 
 
 def test_full_profile_omits_missing_facts(client, connected):

@@ -20,7 +20,7 @@ service cloud.firestore {
     }
 
     function profileFields() {
-      return ['displayName', 'bio', 'avatarPreset', 'createdAt',
+      return ['displayName', 'bio', 'avatarPreset', 'profileStyle', 'createdAt',
               'onboardingCompletedAt', 'preferences', 'aiConsent'];
     }
 
@@ -49,6 +49,35 @@ service cloud.firestore {
         && (!('fame' in p) || (p.fame is number && p.fame >= 0 && p.fame <= 1));
     }
 
+    // Até 3 strings; as regras não iteram listas, por isso cada posição é checada.
+    function shortStringList(values) {
+      return values is list
+        && values.size() <= 3
+        && (values.size() < 1 || (values[0] is string && values[0].size() <= 200))
+        && (values.size() < 2 || (values[1] is string && values[1].size() <= 200))
+        && (values.size() < 3 || (values[2] is string && values[2].size() <= 200));
+    }
+
+    // Perfil personalizável (Assemble-perfis-e-fontes.md §1). Moldura bloqueada e destaques
+    // inválidos não são barrados aqui: o app limpa na exibição (o perfil só é visto pelo dono).
+    function validProfileStyle(s) {
+      return s is map
+        && s.keys().hasOnly(['cover', 'accent', 'frame', 'prompt', 'promptAnswer',
+                             'featuredConnections', 'featuredBadges'])
+        && (!('cover' in s) || s.cover in ['Energy', 'Halftone', 'Comic', 'Night'])
+        && (!('accent' in s) || s.accent in ['Pink', 'Red', 'Blue', 'Violet', 'Gold'])
+        && (!('frame' in s) || s.frame in ['Simple', 'Ring', 'Hexagon', 'Burst'])
+        && (!('prompt' in s) || s.prompt in ['DreamPower', 'IdealTeam', 'FirstRecruit'])
+        && (!('promptAnswer' in s)
+              || (s.promptAnswer is string && s.promptAnswer.size() <= 80))
+        && (!('featuredConnections' in s) || shortStringList(s.featuredConnections))
+        && (!('featuredBadges' in s)
+              || (s.featuredBadges is list && s.featuredBadges.size() <= 3
+                  && enumList(s.featuredBadges,
+                       ['FirstConnection', 'TeamUp', 'IceBreaker', 'Storyteller',
+                        'Explorer', 'Crossover'])));
+    }
+
     function validAiConsent(c) {
       return c is map
         && c.keys().hasOnly(['acceptedAt', 'version'])
@@ -64,6 +93,7 @@ service cloud.firestore {
               || (d.avatarPreset is int && d.avatarPreset >= 0 && d.avatarPreset <= 5))
         && (!('createdAt' in d) || d.createdAt is timestamp)
         && (!('onboardingCompletedAt' in d) || d.onboardingCompletedAt is timestamp)
+        && (!('profileStyle' in d) || validProfileStyle(d.profileStyle))
         && (!('preferences' in d) || validPreferences(d.preferences))
         && (!('aiConsent' in d) || validAiConsent(d.aiConsent));
     }
