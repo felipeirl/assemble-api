@@ -1,3 +1,10 @@
+---
+title: Assemble Backend
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Assemble — Backend
 
 Único servidor do app Assemble (Android). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o match e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
@@ -95,22 +102,29 @@ Toda chamada de chat envia `x-cmd-zdr: 1` (retenção zero). As fichas de person
 - Publique as regras com a [Firebase CLI](https://firebase.google.com/docs/cli): `firebase deploy --only firestore:rules`.
 - O backend não depende de índices compostos.
 
+Testes das regras no emulador. Exigem Node 20+ e Java 21+:
+
+```bash
+cd firestore-tests
+npm install
+npm test
+```
+
 ## Deploy no Hugging Face Space
 
-1. Crie um Space com **SDK Docker** e hardware *CPU basic*.
-2. Acrescente ao topo deste README, no repositório do Space, o front matter abaixo:
+O deploy é automático. A cada push na `main`, `.github/workflows/deploy.yml` roda os testes Python e os testes das regras do Firestore. Se tudo passar, espelha o repositório no Space com [`huggingface/hub-sync`](https://huggingface.co/docs/hub/spaces-github-actions). O front matter no topo deste README configura o Space (SDK Docker, porta 7860).
 
-   ```yaml
-   ---
-   title: Assemble Backend
-   sdk: docker
-   app_port: 7860
-   ---
-   ```
+Configuração (uma vez):
 
-3. Cadastre as variáveis obrigatórias em *Settings → Variables and secrets*. Use *Secrets* para chaves e credenciais.
-4. Envie o código para o repositório do Space (`git push`). O Space faz o build do `Dockerfile` sozinho.
-5. Na primeira subida, o Laya baixa os pesos do Hugging Face Hub, com cerca de 1,3 GB. O download acontece em segundo plano e, até terminar, as chamadas de chat e de match esperam o carregamento.
+1. Crie o Space com **SDK Docker** e hardware *CPU basic*.
+2. No Space, cadastre as variáveis obrigatórias em *Settings → Variables and secrets*. Use *Secrets* para chaves e credenciais.
+3. Crie um [token do Hugging Face](https://huggingface.co/settings/tokens) com permissão de escrita.
+4. No GitHub, em *Settings → Secrets and variables → Actions*, cadastre:
+   - o secret `HF_TOKEN` com o token do passo 3;
+   - a variável `HF_SPACE` com o id do Space, ex.: `usuario/assemble-backend`.
+5. Faça um push na `main`, ou use *Actions → Test and deploy → Run workflow*. O Space faz o build do `Dockerfile` sozinho.
+
+Na primeira subida, o Laya baixa os pesos do Hugging Face Hub, com cerca de 1,3 GB. O download acontece em segundo plano e, até terminar, as chamadas de chat e de match esperam o carregamento.
 
 O Space gratuito dorme após 48 h sem uso. Antes de uma demonstração, chame `GET /health` e espere a resposta. A primeira pode levar alguns minutos.
 
