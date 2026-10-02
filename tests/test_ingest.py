@@ -8,12 +8,13 @@ from app.catalog.comicvine import ComicVineBudgetExceededError, ComicVineClient,
 from app.catalog.fandom import FandomClient
 from app.catalog.ingest import IngestService, IngestSettings, compute_tier, image_url
 from app.catalog.mapping import Mappings, load_mappings, normalize
-from app.catalog.superhero_api import SuperheroApiClient
+from app.catalog.superhero_api import SuperheroApiClient, SuperheroMatcher
 from app.catalog.text import html_to_text, slugify
 from app.domain.enums import PowerFamily, Team
 from app.repositories import CharacterRepository
 from app.store.memory import MemoryStore
 from tests.conftest import JOBS_KEY
+from tests.superhero_samples import STORM_638
 
 STORM_ID = 1468
 ISSUE_ID = 9001
@@ -50,8 +51,9 @@ STORM_DETAIL = {
 class FakeSource:
     """Responde Comic Vine, Fandom e Superhero API a partir de um roteiro."""
 
-    def __init__(self, detail=None, list_pages=None, fandom=True):
+    def __init__(self, detail=None, list_pages=None, fandom=True, superheroes=None):
         self.detail = detail or STORM_DETAIL
+        self.superheroes = superheroes or []
         self.list_pages = list_pages or {0: ([], 0)}
         self.fandom = fandom
         self.calls: list[str] = []
@@ -65,7 +67,7 @@ class FakeSource:
         if url.netloc == "marvel.fandom.com":
             return self._fandom(params)
         if url.netloc == "akabab.github.io":
-            return httpx.Response(200, json=[])
+            return httpx.Response(200, json=self.superheroes)
         raise AssertionError(f"URL inesperada: {request.url}")
 
     def _comicvine(self, path, params):
@@ -99,19 +101,22 @@ def mappings(tier_a_names=("Storm",)) -> Mappings:
         teams=loaded.teams,
         tier_a_names=list(tier_a_names),
         version=loaded.version,
+        superhero_matches=loaded.superhero_matches,
+        accepted_publishers=loaded.accepted_publishers,
     )
 
 
 def build_service(source, store, clock, tier_a_names=("Storm",), budget=50):
     http = httpx.Client(transport=httpx.MockTransport(source))
     no_sleep = lambda seconds: None  # noqa: E731
+    loaded = mappings(tier_a_names)
     return IngestService(
         comicvine=ComicVineClient(http, "key", budget, 0.0, sleep=no_sleep),
         fandom=FandomClient(http, max_chars=500, interval_seconds=0.0, sleep=no_sleep),
-        superhero=SuperheroApiClient(http),
+        superhero=SuperheroMatcher(SuperheroApiClient(http), loaded),
         characters=CharacterRepository(store),
         store=store,
-        mappings=mappings(tier_a_names),
+        mappings=loaded,
         clock=clock,
         settings=IngestSettings(tier_b_min_appearances=50, refresh_days=30, bio_max_chars=500),
     )
@@ -271,13 +276,21 @@ def test_budget_exhaustion_stops_and_keeps_state(clock):
 def test_team_solo_only_when_source_says_no_team(clock):
     store = MemoryStore()
     detail = {**STORM_DETAIL, "teams": []}
-    source = FakeSource(detail=detail)
-    service = build_service(source, store, clock)
-    service._superhero._affiliations = {normalize("Storm"): ["None"]}
-
-    service.run()
+    no_team = {**STORM_638, "connections": {"groupAffiliation": "None"}}
+    build_service(FakeSource(detail=detail, superheroes=[no_team]), store, clock).run()
 
     assert store.get("characters/storm")["teams"] == [Team.Solo.value]
+
+
+def test_matched_superhero_affiliations_fill_missing_teams(clock):
+    store = MemoryStore()
+    detail = {**STORM_DETAIL, "teams": []}
+
+    build_service(FakeSource(detail=detail, superheroes=[STORM_638]), store, clock).run()
+
+    doc = store.get("characters/storm")
+    assert doc["teams"] == ["XMen"]
+    assert doc["factSources"]["teams"] == "SuperheroApi"
 
 
 def test_empty_source_teams_without_evidence_stay_empty(clock):
@@ -308,3 +321,47 @@ def test_jobs_ingest_without_comicvine_key_is_503(client):
     response = client.post("/jobs/ingest", headers={"X-Jobs-Key": JOBS_KEY})
 
     assert response.status_code == 503
+
+
+def test_enrichment_from_matched_superhero_entry(clock):
+    store = MemoryStore()
+
+    build_service(FakeSource(superheroes=[STORM_638]), store, clock).run()
+
+    doc = store.get("characters/storm")
+    assert doc["superheroId"] == 638
+    assert doc["superheroMatch"] == "manual"
+    assert doc["enrichedAt"] == clock.now()
+    assert doc["powerstats"]["power"] == 88
+    assert doc["appearance"]["heightCm"] == 180
+    assert doc["alignment"] == "Good"
+    assert doc["factSources"]["realName"] == "ComicVine"
+    assert doc["factSources"]["powerstats"] == "SuperheroApi"
+    assert doc["factSources"]["teams"] == "ComicVine"
+    assert {"name": "Superhero API", "url": "https://akabab.github.io/superhero-api/"} in doc[
+        "sources"
+    ]
+    assert "storm" not in store.get("jobState/ingest")["superheroReview"]
+
+
+def test_unmatched_character_goes_to_review_queue(clock):
+    store = MemoryStore()
+
+    build_service(FakeSource(), store, clock).run()
+
+    doc = store.get("characters/storm")
+    assert "superheroId" not in doc and "powerstats" not in doc
+    review = store.get("jobState/ingest")["superheroReview"]
+    assert review["storm"] == {"name": "Storm", "realName": "Ororo Munroe", "candidates": []}
+
+
+def test_mapping_version_change_forces_refresh(clock):
+    store = MemoryStore()
+    source = FakeSource()
+    build_service(source, store, clock).run()
+    store.update("characters/storm", {"mappingVersion": "old"})
+    calls = len(source.calls)
+
+    build_service(source, store, clock).run()
+
+    assert any("4005-" in c for c in source.calls[calls:])

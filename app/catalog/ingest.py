@@ -13,7 +13,14 @@ from app.catalog.comicvine import (
 from app.catalog.fandom import SOURCE_LABEL as FANDOM_SOURCE_LABEL
 from app.catalog.fandom import FandomClient
 from app.catalog.mapping import Mappings, normalize
-from app.catalog.superhero_api import SuperheroApiClient
+from app.catalog.superhero_api import SOURCE_LABEL as SUPERHERO_SOURCE_LABEL
+from app.catalog.superhero_api import SOURCE_URL as SUPERHERO_SOURCE_URL
+from app.catalog.superhero_api import (
+    SuperheroMatch,
+    SuperheroMatcher,
+    clean_entry,
+    group_affiliations,
+)
 from app.catalog.text import html_to_text, slugify
 from app.clock import Clock
 from app.domain.enums import Team
@@ -26,6 +33,10 @@ TIER_A = "A"
 TIER_B = "B"
 STATE_PATH = "jobState/ingest"
 NO_TEAM_MARKERS = {"none", "noaffiliation"}
+REVIEW_QUEUE_MAX = 200
+FACT_SOURCE_COMIC_VINE = "ComicVine"
+FACT_SOURCE_SUPERHERO_API = "SuperheroApi"
+COMIC_VINE_FACTS = ("realName", "origin", "powers", "firstAppearance", "issueAppearances", "bio")
 BLANK_IMAGE_MARKER = "blank"
 
 logger = logging.getLogger(__name__)
@@ -44,6 +55,8 @@ class IngestReport:
     unresolved_tier_a: list[str] = field(default_factory=list)
     errors: int = 0
     budget_exhausted: bool = False
+    superhero_matched: list[str] = field(default_factory=list)
+    superhero_review: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def compute_tier(doc: dict[str, Any], curated: bool, min_appearances: int) -> str | None:
@@ -60,7 +73,7 @@ class IngestService:
         self,
         comicvine: ComicVineClient,
         fandom: FandomClient,
-        superhero: SuperheroApiClient,
+        superhero: SuperheroMatcher,
         characters: CharacterRepository,
         store: DocumentStore,
         mappings: Mappings,
@@ -85,6 +98,7 @@ class IngestService:
         except ComicVineBudgetExceededError:
             report.budget_exhausted = True
         finally:
+            _update_review_queue(state, report)
             self._store.set(STATE_PATH, state)
         logger.info(
             "Ingestão: %d gravados, %d erros, limite atingido=%s",
@@ -139,6 +153,8 @@ class IngestService:
         existing = self._characters.get(character_id)
         if existing is None or "fetchedAt" not in existing:
             return False
+        if existing.get("mappingVersion") != self._mappings.version:
+            return False
         age = self._clock.now() - existing["fetchedAt"]
         return age < timedelta(days=self._settings.refresh_days)
 
@@ -155,7 +171,9 @@ class IngestService:
         if not detail.get("name"):
             report.errors += 1
             return
-        doc = self._build_document(detail, first_appearance, curated, self._clock.now())
+        doc = self._build_document(
+            character_id, detail, first_appearance, curated, self._clock.now(), report
+        )
         existing = self._characters.get(character_id) or {}
         for preserved in ("ingestedAt", "styles"):
             if preserved in existing:
@@ -175,14 +193,18 @@ class IngestService:
 
     def _build_document(
         self,
+        character_id: str,
         detail: dict[str, Any],
         first_appearance: str | None,
         curated: bool,
         now: datetime,
+        report: IngestReport,
     ) -> dict[str, Any]:
         name = detail["name"]
         real_name = detail.get("real_name") or None
         personality = self._fandom.personality(name, real_name)
+        superhero = self._superhero.match(character_id, name, real_name)
+        teams, teams_source = self._teams(detail, superhero)
         sources = [{"name": COMIC_VINE, "url": detail.get("site_detail_url")}]
         if personality is not None:
             sources.append({"name": FANDOM_SOURCE_LABEL, "url": personality.url})
@@ -192,7 +214,7 @@ class IngestService:
             "realName": real_name,
             "origin": self._origin(detail),
             "powers": [p.value for p in self._powers(detail)],
-            "teams": [t.value for t in self._teams(name, detail)],
+            "teams": [t.value for t in teams],
             "firstAppearance": first_appearance,
             "issueAppearances": detail.get("count_of_issue_appearances"),
             "imageUrl": image_url(detail.get("image")),
@@ -202,6 +224,29 @@ class IngestService:
             "sourceUrl": detail.get("site_detail_url"),
         }
         doc = {key: value for key, value in facts.items() if value not in (None, "")}
+        fact_sources = {key: FACT_SOURCE_COMIC_VINE for key in COMIC_VINE_FACTS if doc.get(key)}
+        if teams:
+            fact_sources["teams"] = teams_source
+        if superhero.entry is not None:
+            enrichment = clean_entry(superhero.entry)
+            doc.update(enrichment)
+            fact_sources.update({key: FACT_SOURCE_SUPERHERO_API for key in enrichment})
+            doc.update(
+                {
+                    "superheroId": int(superhero.entry["id"]),
+                    "superheroMatch": superhero.method,
+                    "enrichedAt": now,
+                }
+            )
+            sources.append({"name": SUPERHERO_SOURCE_LABEL, "url": SUPERHERO_SOURCE_URL})
+            report.superhero_matched.append(character_id)
+        else:
+            report.superhero_review[character_id] = {
+                "name": name,
+                "realName": real_name,
+                "candidates": superhero.candidates,
+            }
+        doc["factSources"] = fact_sources
         doc.update(
             {
                 "comicVineId": detail["id"],
@@ -224,16 +269,25 @@ class IngestService:
         names = [p.get("name", "") for p in detail.get("powers") or []]
         return self._mappings.power_families(names)
 
-    def _teams(self, name: str, detail: dict[str, Any]) -> list[Team]:
+    def _teams(self, detail: dict[str, Any], superhero: SuperheroMatch) -> tuple[list[Team], str]:
+        """Equipes da Comic Vine; afiliações da Superhero API só com personagem casado."""
         source_teams = [t.get("name", "") for t in detail.get("teams") or []]
-        if source_teams:
-            return self._mappings.team_list(source_teams)
-        groups = self._superhero.group_affiliations(name)
-        if not groups:
-            return []
-        if all(normalize(group) in NO_TEAM_MARKERS for group in groups):
-            return [Team.Solo]
-        return self._mappings.team_list(groups)
+        if source_teams or superhero.entry is None:
+            return self._mappings.team_list(source_teams), FACT_SOURCE_COMIC_VINE
+        groups = group_affiliations(superhero.entry)
+        if groups and all(normalize(group) in NO_TEAM_MARKERS for group in groups):
+            return [Team.Solo], FACT_SOURCE_SUPERHERO_API
+        return self._mappings.team_list(groups), FACT_SOURCE_SUPERHERO_API
+
+
+def _update_review_queue(state: dict[str, Any], report: IngestReport) -> None:
+    """Personagens sem par seguro na Superhero API ficam para revisão humana."""
+    queue: dict[str, Any] = state.setdefault("superheroReview", {})
+    for character_id in report.superhero_matched:
+        queue.pop(character_id, None)
+    for character_id, item in report.superhero_review.items():
+        if character_id in queue or len(queue) < REVIEW_QUEUE_MAX:
+            queue[character_id] = item
 
 
 def image_url(image: dict[str, Any] | None) -> str | None:

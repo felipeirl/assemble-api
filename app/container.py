@@ -215,12 +215,13 @@ def _build_ingest(settings: Settings, store: DocumentStore, clock: Clock):
     from app.catalog.fandom import FandomClient
     from app.catalog.ingest import IngestService, IngestSettings
     from app.catalog.mapping import load_mappings
-    from app.catalog.superhero_api import SuperheroApiClient
+    from app.catalog.superhero_api import SuperheroApiClient, SuperheroMatcher
     from app.repositories import CharacterRepository
 
     if settings.comicvine_api_key is None:
         return None
     http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True)
+    mappings = load_mappings()
     return IngestService(
         comicvine=ComicVineClient(
             http,
@@ -233,10 +234,10 @@ def _build_ingest(settings: Settings, store: DocumentStore, clock: Clock):
             max_chars=settings.personality_max_chars,
             interval_seconds=settings.ingest_request_interval_seconds,
         ),
-        superhero=SuperheroApiClient(http),
+        superhero=SuperheroMatcher(SuperheroApiClient(http), mappings),
         characters=CharacterRepository(store),
         store=store,
-        mappings=load_mappings(),
+        mappings=mappings,
         clock=clock,
         settings=IngestSettings(
             tier_b_min_appearances=settings.tier_b_min_appearances,

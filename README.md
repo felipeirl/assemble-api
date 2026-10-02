@@ -131,6 +131,21 @@ Cadastre em *Settings → Secrets and variables → Actions*:
 
 Para rodar um job manualmente, use *Actions → Scheduled jobs → Run workflow*. As rotas respondem `202` e o trabalho segue em segundo plano.
 
+## Casamento com a Superhero API
+
+A Superhero API não tem o ID da Comic Vine. O casamento segue esta ordem (`Assemble-perfis-e-fontes.md` §3.1):
+
+1. a tabela manual `data/superhero_matches.json`;
+2. a regra automática, que exige nome, nome real e editora aceita iguais, com um único candidato.
+
+O que não casar fica sem enriquecimento e entra na fila de revisão. Para exportar a fila:
+
+```bash
+uv run python -m app.catalog.export_review
+```
+
+O comando gera `data/superhero_review.json`. Confirme o id na fonte, copie o par para `superhero_matches.json` e suba a versão do arquivo. Isso força a reingestão dos personagens.
+
 ## Fontes e licenças
 
 - Fatos dos personagens: [Comic Vine](https://comicvine.gamespot.com/api/).

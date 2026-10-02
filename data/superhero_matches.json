@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "_comment": "Casamento manual characterId -> id da Superhero API (akabab v0.3.0); null = sem par. Vale antes de qualquer regra automática. Só IDs conferidos na fonte. Completar o tier A a partir de data/superhero_review.json (python -m app.catalog.export_review).",
+  "acceptedPublishers": ["Marvel Comics", "Phoenix"],
+  "matches": {
+    "storm": 638,
+    "jean-grey": 356,
+    "rocket-raccoon": 566,
+    "iron-man": 346,
+    "iron-fist": 345
+  }
+}
