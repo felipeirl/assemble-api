@@ -16,8 +16,7 @@ Limites do plano gratuito do ngrok (conferidos em ngrok.com/docs/pricing-limits/
     ```
     FIREBASE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
     ```
-    As aspas simples preservam as quebras de linha (`
-`) da chave privada. O JSON baixado não deve ficar dentro da pasta do projeto.
+    As aspas simples preservam as quebras de linha da chave privada (a sequência de dois caracteres, barra invertida e n). O JSON baixado não deve ficar dentro da pasta do projeto.
   - `COMICVINE_API_KEY`, `COMMANDCODE_API_KEY`, `COMMANDCODE_BASE_URL`.
   - `CHAT_MODEL`, `CHAT_FALLBACK_MODEL`, `PERSONA_MODEL`: ids de `GET https://api.commandcode.ai/provider/v1/models`.
   - `JOBS_KEY`: um segredo aleatório longo.
