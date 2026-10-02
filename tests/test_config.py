@@ -25,3 +25,15 @@ def test_settings_hide_secrets_in_repr(monkeypatch):
     settings = Settings(_env_file=None)
 
     assert "chave-secreta" not in repr(settings)
+
+
+def test_blank_values_from_env_example_count_as_unset(monkeypatch):
+    monkeypatch.setenv("COMICVINE_API_KEY", "")
+    monkeypatch.setenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    monkeypatch.setenv("MESSAGES_PER_HOUR", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.comicvine_api_key is None
+    assert settings.firebase_service_account_json is None
+    assert settings.messages_per_hour == 60
