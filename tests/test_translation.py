@@ -233,3 +233,48 @@ def test_ingest_preserves_translation_fields(clock):
     storm = store.get("characters/storm")
     assert storm["translations"] == {"pt-BR": {"bio": "texto"}}
     assert storm["translationHash"] == "abc"
+
+
+def test_translations_run_in_parallel_blocks_and_all_get_stored(client, ready):
+    import threading
+    import time
+
+    ready.settings.translation_concurrency = 3
+    ready.__dict__.pop("translation_service", None)
+    ready.store.update("characters/storm", {"occupation": "Adventurer"})
+    for character_id in ("iron-man", "rocket"):
+        ready.store.update(f"characters/{character_id}", {"occupation": "Hero"})
+    ready.catalog.invalidate()
+    active, peak, guard = [0], [0], threading.Lock()
+
+    def slow_translator(messages):
+        with guard:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        time.sleep(0.1)
+        reply = translator_reply(messages)
+        with guard:
+            active[0] -= 1
+        return reply
+
+    ready.llm = FakeLlm(slow_translator)
+
+    report = ready.translation_service.run()
+
+    assert sorted(report.translated) == ["iron-man", "rocket", "storm"]
+    assert peak[0] > 1
+    for character_id in report.translated:
+        assert "pt-BR" in ready.store.get(f"characters/{character_id}")["translations"]
+
+
+def test_parallel_translations_stop_after_three_consecutive_provider_failures(client, ready):
+    ready.settings.translation_concurrency = 2
+    ready.__dict__.pop("translation_service", None)
+    for character_id in ("storm", "iron-man", "rocket", "jean-grey"):
+        ready.store.update(f"characters/{character_id}", {"occupation": "Hero"})
+    ready.catalog.invalidate()
+    ready.llm = FakeLlm("", fail=True)
+
+    report = ready.translation_service.run()
+
+    assert report.translated == [] and len(report.failed) == 4

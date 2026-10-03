@@ -113,6 +113,7 @@ class Container:
             clock=self.clock,
             batch_size=self.settings.translation_batch_size,
             timeout_seconds=self.settings.batch_llm_timeout_seconds,
+            concurrency=self.settings.translation_concurrency,
         )
 
     @cached_property

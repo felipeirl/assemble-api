@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     batch_llm_timeout_seconds: float = 300.0
     persona_batch_size: int = 20
     translation_batch_size: int = 20
+    translation_concurrency: int = 1
     guardrail_enabled: bool = True
     guardrail_threshold: float = 0.5
     chat_history_limit: int = 20

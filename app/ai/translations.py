@@ -7,6 +7,7 @@ apelidos e aparição ficam no original, e nomes vêm da tabela curada (app/cata
 import hashlib
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,6 +24,9 @@ from app.clock import Clock
 from app.i18n import PT_BR
 from app.repositories import CharacterRepository
 
+OUTCOME_OK = "ok"
+OUTCOME_UNAVAILABLE = "unavailable"
+OUTCOME_INVALID = "invalid"
 TRANSLATABLE_FIELDS = ("bio", "occupation", "base", "placeOfBirth", "relatives")
 # Mesmo motivo das fichas: o raciocínio do modelo consome o limite antes da resposta.
 TRANSLATION_MAX_TOKENS = 12000
@@ -99,7 +103,9 @@ class TranslationService:
         clock: Clock,
         batch_size: int,
         timeout_seconds: float | None = None,
+        concurrency: int = 1,
     ) -> None:
+        self._concurrency = max(1, concurrency)
         self._timeout = timeout_seconds
         self._llm = llm
         self._model = model
@@ -116,24 +122,35 @@ class TranslationService:
             if is_pending(doc)
         ][: self._batch_size]
         unavailable_streak = 0
-        for character_id, doc in pending:
-            try:
-                self.translate(character_id, doc)
-            except (LlmUnavailableError, InvalidModelOutputError) as exc:
-                logger.warning("Tradução de %s falhou: %s", character_id, type(exc).__name__)
-                report.failed.append(character_id)
-                unavailable_streak = (
-                    unavailable_streak + 1 if isinstance(exc, LlmUnavailableError) else 0
-                )
+        with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
+            # Em blocos do tamanho da concorrência: entre um bloco e outro dá para ver se o
+            # provedor caiu e parar, sem disparar o lote inteiro de uma vez.
+            for start in range(0, len(pending), self._concurrency):
+                block = pending[start : start + self._concurrency]
+                outcomes = list(pool.map(lambda item: self._attempt(*item), block))
+                for (character_id, _), outcome in zip(block, outcomes, strict=True):
+                    if outcome == OUTCOME_OK:
+                        unavailable_streak = 0
+                        report.translated.append(character_id)
+                        continue
+                    report.failed.append(character_id)
+                    unavailable_streak = (
+                        unavailable_streak + 1 if outcome == OUTCOME_UNAVAILABLE else 0
+                    )
                 if unavailable_streak >= MAX_CONSECUTIVE_PROVIDER_FAILURES:
                     break
-                continue
-            unavailable_streak = 0
-            report.translated.append(character_id)
-            logger.info("Traduzido %s", character_id)
         if report.translated:
             self._catalog.invalidate()
         return report
+
+    def _attempt(self, character_id: str, doc: dict[str, Any]) -> str:
+        try:
+            self.translate(character_id, doc)
+        except (LlmUnavailableError, InvalidModelOutputError) as exc:
+            logger.warning("Tradução de %s falhou: %s", character_id, type(exc).__name__)
+            return OUTCOME_UNAVAILABLE if isinstance(exc, LlmUnavailableError) else OUTCOME_INVALID
+        logger.info("Traduzido %s", character_id)
+        return OUTCOME_OK
 
     def translate(self, character_id: str, doc: dict[str, Any]) -> dict[str, str]:
         source = source_fields(doc)
