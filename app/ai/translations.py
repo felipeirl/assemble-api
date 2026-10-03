@@ -10,14 +10,20 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.ai.llm import InvalidModelOutputError, LlmClient, LlmUnavailableError, parse_json_object
+from app.ai.llm import (
+    InvalidModelOutputError,
+    LlmClient,
+    LlmUnavailableError,
+    log_invalid_output,
+    parse_json_object,
+)
 from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
 from app.i18n import PT_BR
 from app.repositories import CharacterRepository
 
 TRANSLATABLE_FIELDS = ("bio", "occupation", "base", "placeOfBirth", "relatives")
-TRANSLATION_MAX_TOKENS = 1800
+TRANSLATION_MAX_TOKENS = 4000
 TRANSLATION_TEMPERATURE = 0.2
 # A tradução pode crescer em português, mas não indefinidamente.
 MAX_GROWTH_FACTOR = 3
@@ -90,7 +96,9 @@ class TranslationService:
         catalog: CharacterCatalog,
         clock: Clock,
         batch_size: int,
+        timeout_seconds: float | None = None,
     ) -> None:
+        self._timeout = timeout_seconds
         self._llm = llm
         self._model = model
         self._characters = characters
@@ -137,8 +145,13 @@ class TranslationService:
             json_mode=True,
             max_tokens=TRANSLATION_MAX_TOKENS,
             temperature=TRANSLATION_TEMPERATURE,
+            timeout=self._timeout,
         )
-        translated = validate_translation(source, parse_json_object(response.content))
+        try:
+            translated = validate_translation(source, parse_json_object(response.content))
+        except InvalidModelOutputError:
+            log_invalid_output(logger, character_id, response)
+            raise
         self._characters.upsert(
             character_id,
             {

@@ -5,6 +5,8 @@ from app.container import ContainerDep
 from app.errors import ApiError
 
 ACCEPTED = 202
+# Fichas e traduções usam o mesmo modelo: um job por vez evita estourar limite e tempo.
+LLM_BATCH = "llm-batch"
 
 router = APIRouter(prefix="/jobs", dependencies=[Depends(require_jobs_key)])
 
@@ -22,7 +24,9 @@ def personas(background: BackgroundTasks, container: ContainerDep) -> Response:
     service = container.persona_service
     if service is None:
         raise ApiError("provider_unavailable")
-    background.add_task(container.job_runner.run_exclusive, "personas", service.run)
+    background.add_task(
+        container.job_runner.run_exclusive, "personas", service.run, serialize_with=LLM_BATCH
+    )
     return Response(status_code=ACCEPTED)
 
 
@@ -38,5 +42,7 @@ def translations(background: BackgroundTasks, container: ContainerDep) -> Respon
     service = container.translation_service
     if service is None:
         raise ApiError("provider_unavailable")
-    background.add_task(container.job_runner.run_exclusive, "translations", service.run)
+    background.add_task(
+        container.job_runner.run_exclusive, "translations", service.run, serialize_with=LLM_BATCH
+    )
     return Response(status_code=ACCEPTED)

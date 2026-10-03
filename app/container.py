@@ -112,6 +112,7 @@ class Container:
             catalog=self.catalog,
             clock=self.clock,
             batch_size=self.settings.translation_batch_size,
+            timeout_seconds=self.settings.batch_llm_timeout_seconds,
         )
 
     @cached_property
@@ -126,6 +127,7 @@ class Container:
             catalog=self.catalog,
             clock=self.clock,
             batch_size=self.settings.persona_batch_size,
+            timeout_seconds=self.settings.batch_llm_timeout_seconds,
         )
 
     @cached_property

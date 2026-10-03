@@ -43,6 +43,7 @@ class InvalidModelOutputError(Exception):
 class LlmResponse:
     content: str
     model: str
+    finish_reason: str | None = None
 
 
 class LlmClient(Protocol):
@@ -55,6 +56,7 @@ class LlmClient(Protocol):
         json_mode: bool,
         max_tokens: int,
         temperature: float,
+        timeout: float | None = None,
     ) -> LlmResponse: ...
 
 
@@ -73,6 +75,7 @@ class LiteLlmClient:
         json_mode: bool,
         max_tokens: int,
         temperature: float,
+        timeout: float | None = None,
     ) -> LlmResponse:
         """Tenta cada modelo na ordem (principal, depois reserva)."""
         for model in models:
@@ -86,15 +89,42 @@ class LiteLlmClient:
                     response_format={"type": "json_object"} if json_mode else None,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    timeout=self._timeout,
+                    timeout=timeout or self._timeout,
                     num_retries=0,
                 )
             except LITELLM_ERRORS as exc:
                 logger.warning("Modelo %s falhou: %s", model, type(exc).__name__)
                 continue
-            content = response.choices[0].message.content or ""
-            return LlmResponse(content=content, model=model)
+            choice = response.choices[0]
+            return LlmResponse(
+                content=choice.message.content or "",
+                model=model,
+                finish_reason=getattr(choice, "finish_reason", None),
+            )
         raise LlmUnavailableError(", ".join(models))
+
+
+def log_invalid_output(log: logging.Logger, subject: str, response: "LlmResponse") -> None:
+    """Registra o começo da saída recusada. Só para jobs com dados públicos (fichas, traduções):
+    nunca para o chat, onde o texto depende de mensagens de usuários."""
+    log.warning(
+        "Saída inválida para %s (finish_reason=%s, %d caracteres): %r",
+        subject,
+        response.finish_reason,
+        len(response.content),
+        response.content[:300],
+    )
+
+
+def _first_json_object(text: str) -> Any:
+    """Objeto JSON entre o primeiro "{" e o último "}", quando o modelo escreve texto em volta."""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        raise InvalidModelOutputError("JSON inválido")
+    try:
+        return json.loads(text[start : end + 1])
+    except json.JSONDecodeError as exc:
+        raise InvalidModelOutputError("JSON inválido") from exc
 
 
 def parse_json_object(content: str) -> dict[str, Any]:
@@ -105,8 +135,8 @@ def parse_json_object(content: str) -> dict[str, Any]:
         text = fenced.group(1)
     try:
         value = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise InvalidModelOutputError("JSON inválido") from exc
+    except json.JSONDecodeError:
+        value = _first_json_object(text)
     if not isinstance(value, dict):
         raise InvalidModelOutputError("Esperado objeto JSON")
     return value

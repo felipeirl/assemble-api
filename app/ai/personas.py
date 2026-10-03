@@ -7,7 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from app.ai.llm import InvalidModelOutputError, LlmClient, LlmUnavailableError, parse_json_object
+from app.ai.llm import (
+    InvalidModelOutputError,
+    LlmClient,
+    LlmUnavailableError,
+    log_invalid_output,
+    parse_json_object,
+)
 from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
 from app.domain.enums import Style
@@ -18,7 +24,7 @@ PROMPT_VERSION = "persona-sheet-v1"
 FIXED_BOUNDARIES = ["não fala de romance", "não afirma eventos como canônicos"]
 LIST_MAX_ITEMS = 6
 ITEM_MAX_CHARS = 200
-PERSONA_MAX_TOKENS = 1200
+PERSONA_MAX_TOKENS = 4000
 PERSONA_TEMPERATURE = 0.7
 FACT_FIELDS = (
     "name",
@@ -104,7 +110,9 @@ class PersonaService:
         catalog: CharacterCatalog,
         clock: Clock,
         batch_size: int,
+        timeout_seconds: float | None = None,
     ) -> None:
+        self._timeout = timeout_seconds
         self._llm = llm
         self._model = model
         self._characters = characters
@@ -144,8 +152,13 @@ class PersonaService:
             json_mode=True,
             max_tokens=PERSONA_MAX_TOKENS,
             temperature=PERSONA_TEMPERATURE,
+            timeout=self._timeout,
         )
-        sheet = PersonaSheet.model_validate(parse_json_object(response.content))
+        try:
+            sheet = PersonaSheet.model_validate(parse_json_object(response.content))
+        except (InvalidModelOutputError, ValidationError):
+            log_invalid_output(logger, character_id, response)
+            raise
         boundaries = sheet.boundaries + [b for b in FIXED_BOUNDARIES if b not in sheet.boundaries]
         persona = {
             "id": character_id,

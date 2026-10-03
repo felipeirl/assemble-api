@@ -160,3 +160,41 @@ def test_litellm_client_raises_when_all_models_fail(monkeypatch):
         LiteLlmClient("k", "u", 1).complete(
             ["a", "b"], [], zdr=False, json_mode=False, max_tokens=1, temperature=0
         )
+
+
+def test_parse_json_object_tolerates_text_around_the_object():
+    wrapped = 'Aqui está o resultado:\n{"voice": "calma", "values": ["a"]}\nEspero que ajude!'
+
+    assert parse_json_object(wrapped) == {"voice": "calma", "values": ["a"]}
+    with pytest.raises(InvalidModelOutputError):
+        parse_json_object("sem objeto nenhum")
+    with pytest.raises(InvalidModelOutputError):
+        parse_json_object("texto { quebrado")
+
+
+def test_invalid_persona_output_is_logged_with_a_preview(with_llm, caplog):
+    with_llm.llm = FakeLlm("resposta sem json " * 40)
+
+    with caplog.at_level("WARNING", logger="app.ai.personas"):
+        with_llm.persona_service.run()
+
+    messages = [r.getMessage() for r in caplog.records if "Saída inválida" in r.getMessage()]
+    assert messages and "resposta sem json" in messages[0]
+    assert len(messages[0]) < 600
+
+
+def test_batch_timeout_reaches_the_model_call(with_llm):
+    captured = []
+    original = with_llm.llm.complete
+
+    def spy(models, messages, **kwargs):
+        captured.append(kwargs.get("timeout"))
+        return original(models, messages, **kwargs)
+
+    with_llm.llm.complete = spy
+    with_llm.settings.batch_llm_timeout_seconds = 77.0
+    with_llm.__dict__.pop("persona_service", None)
+
+    with_llm.persona_service.run()
+
+    assert captured and set(captured) == {77.0}
