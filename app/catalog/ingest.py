@@ -106,6 +106,12 @@ class IngestService:
             report.errors,
             report.budget_exhausted,
         )
+        if report.unresolved_tier_a:
+            logger.warning(
+                "Tier A não encontrado (%d): %s",
+                len(report.unresolved_tier_a),
+                ", ".join(report.unresolved_tier_a),
+            )
         return report
 
     def _ingest_tier_a(self, state: dict[str, Any], report: IngestReport) -> None:
@@ -120,6 +126,7 @@ class IngestService:
                 ]
                 if not candidates:
                     report.unresolved_tier_a.append(name)
+                    logger.warning("Tier A sem correspondência exata na Comic Vine: %s", name)
                     continue
                 best = max(candidates, key=lambda c: c.get("count_of_issue_appearances") or 0)
                 comicvine_id = best["id"]
