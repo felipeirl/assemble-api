@@ -180,6 +180,7 @@ class IngestService:
                 doc[preserved] = existing[preserved]
         self._characters.replace(character_id, doc)
         report.ingested.append(character_id)
+        logger.info("Gravado %s (tier %s)", character_id, doc.get("tier"))
 
     def _first_appearance(self, issue_ref: dict[str, Any] | None) -> str | None:
         if not issue_ref or not issue_ref.get("id"):

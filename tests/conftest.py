@@ -1,3 +1,8 @@
+import os
+
+# Antes de qualquer import do app: o litellm não pode carregar o .env do desenvolvedor.
+os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+
 from datetime import UTC, datetime
 
 import pytest

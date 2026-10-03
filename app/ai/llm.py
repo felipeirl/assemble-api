@@ -2,11 +2,16 @@
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import litellm
+# O litellm, no modo padrão, copia o .env para os.environ ao ser importado. A configuração
+# vem só do pydantic-settings; sem isto, um .env local vazaria para o processo e os testes.
+os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+
+import litellm  # noqa: E402
 
 ZDR_HEADER = {"x-cmd-zdr": "1"}
 OPENAI_COMPATIBLE_PREFIX = "openai/"
