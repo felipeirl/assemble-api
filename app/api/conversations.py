@@ -20,9 +20,9 @@ router = APIRouter(prefix="/v2")
     response_model_exclude_none=True,
 )
 def get_character(
-    character_id: CharacterIdPath, uid: ActiveUid, container: ContainerDep
+    character_id: CharacterIdPath, uid: ActiveUid, locale: Locale, container: ContainerDep
 ) -> CharacterView:
-    return container.profile_service.character(uid, character_id)
+    return container.profile_service.character(uid, character_id, locale)
 
 
 @router.post(

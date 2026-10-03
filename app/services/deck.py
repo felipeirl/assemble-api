@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.api.schemas import Deck, DeckCard
 from app.catalog.catalog import CharacterCatalog
+from app.catalog.names import display_name
 from app.clock import Clock
 from app.domain import deck as deck_rules
 from app.domain.compatibility import score, traits_in_common
@@ -53,7 +54,7 @@ class DeckService:
             deck = self._decks.get(uid, date)
         return date, deck
 
-    def get_deck(self, uid: str, tz: ZoneInfo) -> Deck:
+    def get_deck(self, uid: str, tz: ZoneInfo, locale: str) -> Deck:
         date, deck = self.ensure_deck(uid, tz)
         prefs = self._users.preferences(uid)
         decided = self._decisions.decided_ids(uid)
@@ -63,7 +64,7 @@ class DeckService:
                 continue
             doc = self._catalog.get(character_id)
             if doc is not None:
-                cards.append(build_card(character_id, doc, prefs))
+                cards.append(build_card(character_id, doc, prefs, locale))
         random.shuffle(cards)
         return Deck(
             date=date,
@@ -77,7 +78,7 @@ class DeckService:
     def record_pass(self, uid: str, date: str, character_id: str) -> None:
         self._decks.update(uid, date, {LAST_PASS_FIELD: character_id})
 
-    def undo(self, uid: str, tz: ZoneInfo) -> DeckCard:
+    def undo(self, uid: str, tz: ZoneInfo, locale: str) -> DeckCard:
         date, deck = self.ensure_deck(uid, tz)
         character_id = self._undo_target(uid, date, deck)
         if character_id is None:
@@ -87,7 +88,7 @@ class DeckService:
             raise ApiError("not_found")
         self._decisions.delete(uid, character_id)
         self._decks.update(uid, date, {LAST_PASS_FIELD: DELETE_FIELD})
-        return build_card(character_id, doc, self._users.preferences(uid))
+        return build_card(character_id, doc, self._users.preferences(uid), locale)
 
     def _undo_target(self, uid: str, date: str, deck: dict[str, Any]) -> str | None:
         character_id = deck.get(LAST_PASS_FIELD)
@@ -119,10 +120,10 @@ class DeckService:
         return deck_rules.select_deck(candidates, self._deck_size, rng)
 
 
-def build_card(character_id: str, doc: dict[str, Any], prefs: Preferences) -> DeckCard:
+def build_card(character_id: str, doc: dict[str, Any], prefs: Preferences, locale: str) -> DeckCard:
     return DeckCard(
         characterId=character_id,
-        name=doc["name"],
+        name=display_name(character_id, doc["name"], locale),
         imageUrl=doc.get("imageUrl"),
         traitsInCommon=traits_in_common(prefs, CharacterTraits.model_validate(doc)),
     )

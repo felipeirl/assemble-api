@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.ai.translations import TRANSLATABLE_FIELDS
 from app.api.schemas import (
     CharacterFacts,
     CharacterView,
@@ -12,10 +13,12 @@ from app.api.schemas import (
     WhyYouMatch,
 )
 from app.catalog.catalog import CharacterCatalog
+from app.catalog.names import display_name
 from app.domain.compatibility import traits_in_common
 from app.domain.enums import Team
 from app.domain.models import CharacterTraits
 from app.errors import ApiError
+from app.i18n import PT_BR
 from app.repositories import (
     CharacterRepository,
     DecisionRepository,
@@ -59,20 +62,20 @@ class ProfileService:
         self._decisions = decisions
         self._matches = matches
 
-    def character(self, uid: str, character_id: str) -> CharacterView:
+    def character(self, uid: str, character_id: str, locale: str) -> CharacterView:
         match = self._matches.get(uid, character_id)
         if match is not None:
             doc = self._characters.get(character_id)
             if doc is None:
                 raise ApiError("not_found")
-            return self._full_profile(uid, character_id, doc, match)
+            return self._full_profile(uid, character_id, doc, match, locale)
         doc = self._catalog.get(character_id)
         if doc is None:
             raise ApiError("not_found")
         # Sem conexão: nada de bio, fatos, atributos, colegas nem compatibilidade.
         return CharacterView(
             characterId=character_id,
-            name=doc["name"],
+            name=display_name(character_id, doc["name"], locale),
             imageUrl=doc.get("imageUrl"),
             connected=False,
             traitsInCommon=traits_in_common(
@@ -94,13 +97,19 @@ class ProfileService:
         )
 
     def _full_profile(
-        self, uid: str, character_id: str, doc: dict[str, Any], match: dict[str, Any]
+        self,
+        uid: str,
+        character_id: str,
+        doc: dict[str, Any],
+        match: dict[str, Any],
+        locale: str,
     ) -> CharacterView:
         facts = {key: doc[key] for key in FACT_KEYS if doc.get(key)}
+        translated_fields = apply_translation(facts, doc, locale)
         connected_ids = {cid for cid, _ in self._matches.for_user(uid)}
         return CharacterView(
             characterId=character_id,
-            name=doc["name"],
+            name=display_name(character_id, doc["name"], locale),
             imageUrl=doc.get("imageUrl"),
             connected=True,
             connectionId=character_id,
@@ -113,12 +122,13 @@ class ProfileService:
                 if key in facts
             },
             sources=source_credits(doc),
-            teammates=self._teammates(character_id, doc, connected_ids),
-            compareWith=self._compare_with(character_id, connected_ids),
+            translatedFields=translated_fields or None,
+            teammates=self._teammates(character_id, doc, connected_ids, locale),
+            compareWith=self._compare_with(character_id, connected_ids, locale),
         )
 
     def _teammates(
-        self, character_id: str, doc: dict[str, Any], connected_ids: set[str]
+        self, character_id: str, doc: dict[str, Any], connected_ids: set[str], locale: str
     ) -> list[Teammate]:
         teams = {team for team in doc.get("teams") or [] if team != Team.Solo.value}
         if not teams:
@@ -126,7 +136,7 @@ class ProfileService:
         mates = [
             Teammate(
                 characterId=other_id,
-                name=other["name"],
+                name=display_name(other_id, other["name"], locale),
                 imageUrl=other.get("imageUrl"),
                 connected=other_id in connected_ids,
             )
@@ -136,20 +146,37 @@ class ProfileService:
         mates.sort(key=lambda mate: (not mate.connected, mate.name.lower()))
         return mates[:TEAMMATES_MAX]
 
-    def _compare_with(self, character_id: str, connected_ids: set[str]) -> list[CompareWith]:
+    def _compare_with(
+        self, character_id: str, connected_ids: set[str], locale: str
+    ) -> list[CompareWith]:
         result = []
         for other_id in sorted(connected_ids - {character_id}):
             other = self._lookup(other_id)
             if other and other.get("powerstats"):
                 result.append(
                     CompareWith(
-                        characterId=other_id, name=other["name"], powerstats=other["powerstats"]
+                        characterId=other_id,
+                        name=display_name(other_id, other["name"], locale),
+                        powerstats=other["powerstats"],
                     )
                 )
         return result
 
     def _lookup(self, character_id: str) -> dict[str, Any] | None:
         return self._catalog.get(character_id) or self._characters.get(character_id)
+
+
+def apply_translation(facts: dict[str, Any], doc: dict[str, Any], locale: str) -> list[str]:
+    """Troca os textos longos pela tradução guardada; devolve os campos traduzidos."""
+    if locale != PT_BR:
+        return []
+    translations = (doc.get("translations") or {}).get(PT_BR) or {}
+    replaced = []
+    for key in TRANSLATABLE_FIELDS:
+        if key in facts and translations.get(key):
+            facts[key] = translations[key]
+            replaced.append(key)
+    return replaced
 
 
 def source_credits(doc: dict[str, Any]) -> list[SourceCredit]:

@@ -115,6 +115,7 @@ O deploy no Google Cloud Run continua preparado e é opcional: `docs/cloud-run.m
 |---|---|
 | `POST /jobs/ingest` | ingestão incremental da Comic Vine |
 | `POST /jobs/personas` | gera fichas de persona pendentes (ordem: ingest, depois personas) |
+| `POST /jobs/translations` | traduz para pt-BR os textos longos do perfil (`bio`, `occupation`, `base`, `placeOfBirth`, `relatives`) com o `PERSONA_MODEL`; rode depois do ingest |
 | `POST /jobs/purge` | apaga contas após 30 dias, conversas ocultas e logs após 180 dias |
 
 Todas exigem o header `X-Jobs-Key` e respondem `202`: o trabalho segue em segundo plano. Os jobs **não têm agenda**, porque o backend roda no PC. Execute-os de duas formas:
@@ -123,6 +124,13 @@ Todas exigem o header `X-Jobs-Key` e respondem `202`: o trabalho segue em segund
 - pelo workflow `Jobs` (*Actions → Jobs → Run workflow*), que exige os secrets `ASSEMBLE_API_URL` (o domínio do ngrok) e `JOBS_KEY`, e o PC ligado com o túnel aberto.
 
 Com o backend sempre no ar (Cloud Run), acrescente um `schedule` ao `jobs.yml`.
+
+## Idioma (pt-BR)
+
+- **Nomes:** tabela curada `data/names_ptbr.json` (`characterId` → nome em português). Sem entrada, vale o nome original; nunca se inventa tradução. Para acrescentar, edite o arquivo e suba o campo `version`.
+- **Textos longos:** traduzidos por IA uma vez (`/jobs/translations`) e guardados em `translations.pt-BR` no personagem. A tradução se refaz sozinha quando o texto de origem muda.
+- **No original, por decisão:** apelidos (`aliases`) e primeira aparição.
+- A API escolhe o idioma pelo `Accept-Language`.
 
 ## Casamento com a Superhero API
 

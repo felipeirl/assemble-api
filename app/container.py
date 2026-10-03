@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 
 from app.ai.chat import ChatEngine
 from app.ai.personas import PersonaService
+from app.ai.translations import TranslationService
 from app.catalog.catalog import CharacterCatalog
 from app.clock import Clock
 from app.config import Settings
@@ -99,6 +100,19 @@ class Container:
     @cached_property
     def personas(self) -> PersonaRepository:
         return PersonaRepository(self.store)
+
+    @cached_property
+    def translation_service(self) -> TranslationService | None:
+        if self.llm is None or not self.settings.persona_model:
+            return None
+        return TranslationService(
+            llm=self.llm,
+            model=self.settings.persona_model,
+            characters=self.characters,
+            catalog=self.catalog,
+            clock=self.clock,
+            batch_size=self.settings.translation_batch_size,
+        )
 
     @cached_property
     def persona_service(self) -> PersonaService | None:

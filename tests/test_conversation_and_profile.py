@@ -46,7 +46,7 @@ def test_preview_without_connection_hides_bio_and_compatibility(client, containe
     assert response.status_code == 200
     assert response.json() == {
         "characterId": "storm",
-        "name": "Storm",
+        "name": "Tempestade",
         "imageUrl": "https://img/storm.jpg",
         "traitsInCommon": ["Mutant", "XMen", "Leadership"],
         "connected": False,
@@ -149,7 +149,7 @@ def test_teammates_put_connected_first_and_skip_solo(client, connected):
             "imageUrl": "https://img/jean.jpg",
             "connected": True,
         },
-        {"characterId": "cyclops", "name": "Cyclops", "connected": False},
+        {"characterId": "cyclops", "name": "Ciclope", "connected": False},
     ]
 
 
@@ -180,7 +180,7 @@ def test_compare_with_lists_other_connections_with_powerstats(client, connected)
     body = client.get("/v2/characters/storm", headers=HEADERS).json()
 
     assert body["compareWith"] == [
-        {"characterId": "iron-man", "name": "Iron Man", "powerstats": STORM_POWERSTATS}
+        {"characterId": "iron-man", "name": "Homem de Ferro", "powerstats": STORM_POWERSTATS}
     ]
 
 

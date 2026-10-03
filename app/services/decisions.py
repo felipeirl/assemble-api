@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from app.ai.guardrail import Guardrail, GuardrailUnavailableError
 from app.api.schemas import MatchCharacter, MatchResult
 from app.catalog.catalog import CharacterCatalog
+from app.catalog.names import display_name, pt_br_name
 from app.clock import Clock
 from app.domain.compatibility import breakdown, score
 from app.domain.enums import Choice
@@ -111,7 +112,7 @@ class DecisionService:
         if not outcome.matched:
             return MatchResult(matched=False)
         match = self._ensure_match(uid, character_id, character, decision["match"], locale)
-        return match_result(character_id, character, match)
+        return match_result(character_id, character, match, locale)
 
     def _affinity(self, uid: str, character_id: str, prefs: Preferences) -> float | None:
         """Afinidade da persona pelo usuário (Laya); None = modo degradado, sem inventar."""
@@ -150,6 +151,7 @@ class DecisionService:
             **decided,
             "createdAt": self._clock.now(),
             "characterName": character["name"],
+            **_pt_br_name_field(character_id),
             "userMessageCount": 0,
             "hidden": False,
             **self._conversation.save_opener(uid, character_id, opener),
@@ -176,11 +178,17 @@ class DecisionService:
         if not decision.get("matched"):
             return MatchResult(matched=False)
         match = self._ensure_match(uid, character_id, character, decision["match"], locale)
-        return match_result(character_id, character, match)
+        return match_result(character_id, character, match, locale)
+
+
+def _pt_br_name_field(character_id: str) -> dict[str, str]:
+    """O app lê `characterName` direto do Firestore; o nome em português vai em campo próprio."""
+    name = pt_br_name(character_id)
+    return {"characterNamePtBR": name} if name else {}
 
 
 def match_result(
-    character_id: str, character: dict[str, Any], match: dict[str, Any]
+    character_id: str, character: dict[str, Any], match: dict[str, Any], locale: str
 ) -> MatchResult:
     reasons = [trait for item in match.get("whyYouMatch", []) for trait in item["traits"]]
     return MatchResult(
@@ -188,7 +196,7 @@ def match_result(
         connectionId=character_id,
         character=MatchCharacter(
             characterId=character_id,
-            name=character["name"],
+            name=display_name(character_id, character["name"], locale),
             imageUrl=character.get("imageUrl"),
         ),
         score=match["score"],

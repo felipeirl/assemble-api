@@ -155,6 +155,7 @@ class CharacterView(BaseModel):
     whyYouMatch: list[WhyYouMatch] | None = None
     facts: CharacterFacts | None = None
     factSources: dict[str, str] | None = None
+    translatedFields: list[str] | None = None
     sources: list[SourceCredit] | None = None
     teammates: list[Teammate] | None = None
     compareWith: list[CompareWith] | None = None

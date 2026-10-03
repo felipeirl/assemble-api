@@ -31,3 +31,12 @@ def purge(background: BackgroundTasks, container: ContainerDep) -> Response:
     service = container.account_service
     background.add_task(container.job_runner.run_exclusive, "purge", service.purge)
     return Response(status_code=ACCEPTED)
+
+
+@router.post("/translations", status_code=ACCEPTED)
+def translations(background: BackgroundTasks, container: ContainerDep) -> Response:
+    service = container.translation_service
+    if service is None:
+        raise ApiError("provider_unavailable")
+    background.add_task(container.job_runner.run_exclusive, "translations", service.run)
+    return Response(status_code=ACCEPTED)

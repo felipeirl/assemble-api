@@ -7,6 +7,7 @@ from typing import Any, Literal
 from app.ai import prompts
 from app.ai.guardrail import REASON_SELF_HARM, Guardrail
 from app.ai.llm import InvalidModelOutputError, LlmClient, parse_json_object
+from app.catalog.names import display_name
 from app.catalog.text import truncate
 
 CHAT_MAX_TOKENS = 400
@@ -46,9 +47,10 @@ class ChatResult:
     prompt_version: str
 
 
-def character_context(character_id: str, doc: dict[str, Any]) -> dict[str, Any]:
+def character_context(character_id: str, doc: dict[str, Any], locale: str = "en") -> dict[str, Any]:
     """Bloco `character` da interface 10.1, a partir do documento de `characters/`."""
     context = {"id": character_id, **{k: doc[k] for k in CHARACTER_FACT_KEYS[1:] if doc.get(k)}}
+    context["name"] = display_name(character_id, doc["name"], locale)
     if doc.get("bio"):
         context["summary"] = truncate(doc["bio"], prompts.SUMMARY_MAX_CHARS)
     context["source"] = doc.get("source", "Comic Vine")

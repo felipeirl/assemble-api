@@ -182,7 +182,14 @@ class IngestService:
             character_id, detail, first_appearance, curated, self._clock.now(), report
         )
         existing = self._characters.get(character_id) or {}
-        for preserved in ("ingestedAt", "styles"):
+        for preserved in (
+            "ingestedAt",
+            "styles",
+            "translations",
+            "translationHash",
+            "translatedBy",
+            "translatedAt",
+        ):
             if preserved in existing:
                 doc[preserved] = existing[preserved]
         self._characters.replace(character_id, doc)

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # IA (seções 9.3 e 10)
     llm_timeout_seconds: float = 30.0
     persona_batch_size: int = 20
+    translation_batch_size: int = 20
     guardrail_enabled: bool = True
     guardrail_threshold: float = 0.5
     chat_history_limit: int = 20

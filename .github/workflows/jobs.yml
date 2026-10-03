@@ -14,7 +14,7 @@ on:
         description: "Job a executar"
         required: true
         type: choice
-        options: [ingest, personas, purge]
+        options: [ingest, personas, translations, purge]
 
 permissions: {}
 

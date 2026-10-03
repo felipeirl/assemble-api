@@ -71,7 +71,7 @@ class ConversationService:
             request_id=str(uuid.uuid4()),
             mode="opener",
             locale=locale,
-            character=character_context(character_id, character),
+            character=character_context(character_id, character, locale),
             persona=self._personas.get(character_id) or {},
         )
         with provider_errors_as_api_errors():
@@ -114,7 +114,7 @@ class ConversationService:
             request_id=str(uuid.uuid4()),
             mode="reply",
             locale=locale,
-            character=character_context(connection_id, character),
+            character=character_context(connection_id, character, locale),
             persona=self._personas.get(connection_id) or {},
             history=self._history(uid, connection_id),
             message=text,

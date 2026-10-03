@@ -244,7 +244,7 @@ def test_match_creates_opener_before_responding(client, matched, clock):
     assert message["createdAt"] == clock.now()
     match = matched.store.get(f"users/{UID}/matches/storm")
     assert match["suggestions"] == DEFAULT_SUGGESTIONS
-    assert match["lastMessagePreview"].startswith("Resposta a: The user and Storm")
+    assert match["lastMessagePreview"].startswith("Resposta a: The user and Tempestade")
     assert match["lastMessageAt"] == clock.now()
 
 

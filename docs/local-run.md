@@ -71,9 +71,15 @@ Resposta `202` significa que o job começou; ele continua em segundo plano e o p
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/jobs/personas -Headers $h
 ```
 
+Depois, a tradução dos textos para pt-BR (também 20 por execução; repita até acabar):
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/jobs/translations -Headers $h
+```
+
 `POST /jobs/purge` apaga contas após os 30 dias de carência e logs antigos. Rode de vez em quando.
 
-A ordem é **ingest, depois personas**: a ficha usa os dados já ingeridos.
+A ordem é **ingest, depois personas e translations**: ambos usam os dados já ingeridos.
 
 ## 4. Pelo GitHub Actions (opcional)
 
