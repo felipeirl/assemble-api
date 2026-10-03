@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # IA (seções 9.3 e 10)
     llm_timeout_seconds: float = 30.0
-    batch_llm_timeout_seconds: float = 120.0
+    batch_llm_timeout_seconds: float = 300.0
     persona_batch_size: int = 20
     translation_batch_size: int = 20
     guardrail_enabled: bool = True

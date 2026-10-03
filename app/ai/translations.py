@@ -23,7 +23,8 @@ from app.i18n import PT_BR
 from app.repositories import CharacterRepository
 
 TRANSLATABLE_FIELDS = ("bio", "occupation", "base", "placeOfBirth", "relatives")
-TRANSLATION_MAX_TOKENS = 4000
+# Mesmo motivo das fichas: o raciocínio do modelo consome o limite antes da resposta.
+TRANSLATION_MAX_TOKENS = 12000
 TRANSLATION_TEMPERATURE = 0.2
 # A tradução pode crescer em português, mas não indefinidamente.
 MAX_GROWTH_FACTOR = 3

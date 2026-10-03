@@ -24,7 +24,9 @@ PROMPT_VERSION = "persona-sheet-v1"
 FIXED_BOUNDARIES = ["não fala de romance", "não afirma eventos como canônicos"]
 LIST_MAX_ITEMS = 6
 ITEM_MAX_CHARS = 200
-PERSONA_MAX_TOKENS = 4000
+# Modelos que raciocinam gastam tokens pensando antes de responder: com pouco limite,
+# a saída vem vazia.
+PERSONA_MAX_TOKENS = 12000
 PERSONA_TEMPERATURE = 0.7
 FACT_FIELDS = (
     "name",
