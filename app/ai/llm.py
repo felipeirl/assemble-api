@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -13,6 +14,7 @@ os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 
 import litellm  # noqa: E402
 
+JSON_ATTEMPTS = 2
 ZDR_HEADER = {"x-cmd-zdr": "1"}
 OPENAI_COMPATIBLE_PREFIX = "openai/"
 
@@ -102,6 +104,33 @@ class LiteLlmClient:
                 finish_reason=getattr(choice, "finish_reason", None),
             )
         raise LlmUnavailableError(", ".join(models))
+
+
+def complete_and_parse(
+    llm: "LlmClient",
+    models: list[str],
+    messages: list[dict[str, str]],
+    parse: Callable[[str], Any],
+    subject: str,
+    log: logging.Logger,
+    attempts: int = JSON_ATTEMPTS,
+    **kwargs: Any,
+) -> tuple["LlmResponse", Any]:
+    """Pede a resposta e a interpreta; se vier fora do formato, tenta de novo antes de desistir.
+
+    Só para jobs com dados públicos (fichas, traduções): o trecho da saída inválida vai ao log.
+    `parse` levanta InvalidModelOutputError ou ValueError (inclui o ValidationError do pydantic).
+    """
+    for attempt in range(1, attempts + 1):
+        response = llm.complete(models, messages, **kwargs)
+        try:
+            return response, parse(response.content)
+        except (InvalidModelOutputError, ValueError):
+            log_invalid_output(log, subject, response)
+            if attempt == attempts:
+                raise
+            log.info("Nova tentativa para %s (%d/%d).", subject, attempt + 1, attempts)
+    raise AssertionError("attempts deve ser pelo menos 1")
 
 
 def log_invalid_output(log: logging.Logger, subject: str, response: "LlmResponse") -> None:

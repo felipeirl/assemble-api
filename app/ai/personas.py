@@ -11,7 +11,7 @@ from app.ai.llm import (
     InvalidModelOutputError,
     LlmClient,
     LlmUnavailableError,
-    log_invalid_output,
+    complete_and_parse,
     parse_json_object,
 )
 from app.catalog.catalog import CharacterCatalog
@@ -40,7 +40,11 @@ FACT_FIELDS = (
 SYSTEM_PROMPT = f"""Você cria fichas de persona para um app acadêmico em que usuários conversam \
 com versões FICCIONAIS de personagens de quadrinhos da Marvel, geradas por IA.
 
-Responda apenas com um objeto JSON com exatamente estas chaves:
+Responda apenas com UM objeto JSON (nunca uma lista, nunca texto fora do JSON), no formato:
+{{"voice": "...", "values": ["..."], "speechPatterns": ["..."], "relationships": ["..."],
+"boundaries": ["..."], "sampleLines": ["..."], "styles": ["..."]}}
+
+Significado das chaves:
 - "voice": string curta descrevendo o jeito de falar;
 - "values": lista de valores do personagem;
 - "speechPatterns": lista de padrões de fala;
@@ -147,20 +151,19 @@ class PersonaService:
         return report
 
     def generate(self, character_id: str, character: dict[str, Any]) -> dict[str, Any]:
-        response = self._llm.complete(
+        response, sheet = complete_and_parse(
+            self._llm,
             [self._model],
             build_messages(character),
+            parse=lambda content: PersonaSheet.model_validate(parse_json_object(content)),
+            subject=character_id,
+            log=logger,
             zdr=False,  # só dados públicos de personagens; nunca mensagens de usuários
             json_mode=True,
             max_tokens=PERSONA_MAX_TOKENS,
             temperature=PERSONA_TEMPERATURE,
             timeout=self._timeout,
         )
-        try:
-            sheet = PersonaSheet.model_validate(parse_json_object(response.content))
-        except (InvalidModelOutputError, ValidationError):
-            log_invalid_output(logger, character_id, response)
-            raise
         boundaries = sheet.boundaries + [b for b in FIXED_BOUNDARIES if b not in sheet.boundaries]
         persona = {
             "id": character_id,

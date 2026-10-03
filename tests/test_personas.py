@@ -198,3 +198,31 @@ def test_batch_timeout_reaches_the_model_call(with_llm):
     with_llm.persona_service.run()
 
     assert captured and set(captured) == {77.0}
+
+
+def test_persona_retries_once_when_the_model_answers_with_a_list(with_llm):
+    answers = iter(["[]", json_reply(SHEET)])
+    with_llm.llm = FakeLlm(lambda messages: next(answers))
+    with_llm.settings.persona_batch_size = 1
+
+    report = with_llm.persona_service.run()
+
+    assert len(report.generated) == 1 and report.failed == []
+    assert len(with_llm.llm.calls) == 2
+
+
+def test_persona_gives_up_after_two_invalid_answers(with_llm):
+    with_llm.llm = FakeLlm("[]")
+    with_llm.settings.persona_batch_size = 1
+
+    report = with_llm.persona_service.run()
+
+    assert report.generated == [] and len(report.failed) == 1
+    assert len(with_llm.llm.calls) == 2
+
+
+def test_persona_prompt_asks_for_a_single_object_with_the_expected_keys():
+    from app.ai.personas import SYSTEM_PROMPT
+
+    assert "UM objeto JSON (nunca uma lista" in SYSTEM_PROMPT
+    assert '{"voice": "..."' in SYSTEM_PROMPT

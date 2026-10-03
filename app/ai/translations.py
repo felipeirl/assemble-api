@@ -14,7 +14,7 @@ from app.ai.llm import (
     InvalidModelOutputError,
     LlmClient,
     LlmUnavailableError,
-    log_invalid_output,
+    complete_and_parse,
     parse_json_object,
 )
 from app.catalog.catalog import CharacterCatalog
@@ -33,8 +33,8 @@ MIN_FIELD_LIMIT = 200
 SYSTEM_PROMPT = """Você traduz textos curtos sobre personagens de quadrinhos do inglês para o \
 português do Brasil.
 
-Receberá um objeto JSON com campos de texto. Responda apenas com um objeto JSON com as \
-MESMAS chaves e os valores traduzidos.
+Receberá um objeto JSON com campos de texto. Responda apenas com UM objeto JSON (nunca uma \
+lista, nunca texto fora do JSON) com as MESMAS chaves e os valores traduzidos.
 
 Regras:
 - Traduza fielmente. Não acrescente, não resuma e não corrija fatos.
@@ -131,7 +131,8 @@ class TranslationService:
 
     def translate(self, character_id: str, doc: dict[str, Any]) -> dict[str, str]:
         source = source_fields(doc)
-        response = self._llm.complete(
+        response, translated = complete_and_parse(
+            self._llm,
             [self._model],
             [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -142,17 +143,15 @@ class TranslationService:
                     + "\nTEXTOS>>>",
                 },
             ],
+            parse=lambda content: validate_translation(source, parse_json_object(content)),
+            subject=character_id,
+            log=logger,
             zdr=False,  # só dados públicos de personagens; nunca mensagens de usuários
             json_mode=True,
             max_tokens=TRANSLATION_MAX_TOKENS,
             temperature=TRANSLATION_TEMPERATURE,
             timeout=self._timeout,
         )
-        try:
-            translated = validate_translation(source, parse_json_object(response.content))
-        except InvalidModelOutputError:
-            log_invalid_output(logger, character_id, response)
-            raise
         self._characters.upsert(
             character_id,
             {
