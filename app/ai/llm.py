@@ -14,6 +14,9 @@ os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 
 import litellm  # noqa: E402
 
+# Sem os blocos "Give Feedback / Get Help" que o LiteLLM imprime a cada erro.
+litellm.suppress_debug_info = True
+
 JSON_ATTEMPTS = 2
 ZDR_HEADER = {"x-cmd-zdr": "1"}
 OPENAI_COMPATIBLE_PREFIX = "openai/"
@@ -95,7 +98,7 @@ class LiteLlmClient:
                     num_retries=0,
                 )
             except LITELLM_ERRORS as exc:
-                logger.warning("Modelo %s falhou: %s", model, type(exc).__name__)
+                logger.warning("Modelo %s falhou: %s", model, describe_failure(exc, zdr))
                 continue
             choice = response.choices[0]
             return LlmResponse(
@@ -104,6 +107,21 @@ class LiteLlmClient:
                 finish_reason=getattr(choice, "finish_reason", None),
             )
         raise LlmUnavailableError(", ".join(models))
+
+
+def describe_failure(exc: Exception, private: bool) -> str:
+    """Tipo, código HTTP e, fora do chat, o motivo informado pelo provedor.
+
+    No chat (`private`), o motivo fica de fora do log: ele pode ecoar texto de usuários.
+    """
+    parts = [type(exc).__name__]
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        parts.append(f"HTTP {status}")
+    if not private:
+        reason = " ".join(str(exc).split())
+        parts.append(reason[:300])
+    return " | ".join(parts)
 
 
 def complete_and_parse(

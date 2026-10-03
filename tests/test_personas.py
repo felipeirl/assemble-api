@@ -226,3 +226,16 @@ def test_persona_prompt_asks_for_a_single_object_with_the_expected_keys():
 
     assert "UM objeto JSON (nunca uma lista" in SYSTEM_PROMPT
     assert '{"voice": "..."' in SYSTEM_PROMPT
+
+
+def test_failure_description_hides_the_reason_in_private_chat():
+    from app.ai.llm import describe_failure
+
+    error = litellm.exceptions.RateLimitError(
+        message="limite do plano atingido: texto do usuário", llm_provider="openai", model="m"
+    )
+
+    assert "texto do usuário" not in describe_failure(error, private=True)
+    assert "HTTP 429" in describe_failure(error, private=True)
+    batch = describe_failure(error, private=False)
+    assert "RateLimitError" in batch and "limite do plano atingido" in batch
