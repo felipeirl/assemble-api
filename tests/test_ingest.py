@@ -389,3 +389,16 @@ def test_tier_a_search_name_and_fixed_id_overrides(clock):
     assert state == {"Stormy": STORM_ID, "Fixed": STORM_ID}
     assert store.get("characters/stormy") is not None
     assert store.get("characters/fixed") is not None
+
+
+def test_names_match_accepts_identity_suffix_but_not_look_alikes():
+    from app.catalog.ingest import names_match
+
+    assert names_match("Ant-Man (Lang)", "Ant-Man")
+    assert names_match("Ghost Rider (Blaze)", "Ghost Rider")
+    assert names_match("Storm", "Storm")
+    assert names_match("Mr. Fantastic", "Mr. Fantastic")
+    assert not names_match("Green Goblin Construct", "Green Goblin")
+    assert not names_match("Ghost Rider 2099", "Ghost Rider")
+    assert not names_match("Cosmic Ghost Rider", "Ghost Rider")
+    assert not names_match("Falcona", "Falcon")

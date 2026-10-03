@@ -1,6 +1,7 @@
 """Ingestão incremental do catálogo Marvel (Comic Vine + complementos) em `characters/`."""
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -125,7 +126,7 @@ class IngestService:
                 candidates = [
                     c
                     for c in self._cv.find_marvel_characters_by_name(search)
-                    if normalize(c.get("name", "")) == normalize(search)
+                    if names_match(c.get("name", ""), search)
                 ]
                 if not candidates:
                     report.unresolved_tier_a.append(name)
@@ -296,6 +297,15 @@ class IngestService:
         if groups and all(normalize(group) in NO_TEAM_MARKERS for group in groups):
             return [Team.Solo], FACT_SOURCE_SUPERHERO_API
         return self._mappings.team_list(groups), FACT_SOURCE_SUPERHERO_API
+
+
+def names_match(source_name: str, wanted: str) -> bool:
+    """Nome idêntico ou "Nome (identidade)", como a Comic Vine escreve ("Ant-Man (Lang)").
+
+    "Green Goblin Construct" não casa com "Green Goblin": só o sufixo entre parênteses vale.
+    """
+    without_identity = re.sub(r"\s*\([^)]*\)\s*$", "", source_name)
+    return normalize(without_identity) == normalize(wanted)
 
 
 def _update_review_queue(state: dict[str, Any], report: IngestReport) -> None:
