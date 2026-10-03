@@ -93,12 +93,28 @@ def test_invalid_output_is_reported_and_not_saved(with_llm):
     assert with_llm.store.get("personas/storm") is None
 
 
-def test_unavailable_provider_stops_the_batch(with_llm):
+def test_provider_outage_stops_the_batch_after_three_consecutive_failures(with_llm):
     with_llm.llm = FakeLlm("", fail=True)
 
     report = with_llm.persona_service.run()
 
-    assert len(report.failed) == 1
+    assert len(report.failed) == 3
+
+
+def test_an_isolated_provider_failure_does_not_stop_the_batch(with_llm):
+    answers = iter([None, json_reply(SHEET), json_reply(SHEET), json_reply(SHEET)])
+
+    def flaky(messages):
+        answer = next(answers)
+        if answer is None:
+            raise LlmUnavailableError("passageiro")
+        return answer
+
+    with_llm.llm = FakeLlm(flaky)
+
+    report = with_llm.persona_service.run()
+
+    assert len(report.failed) == 1 and len(report.generated) == 3
 
 
 def test_jobs_personas_route(client, with_llm):
@@ -239,3 +255,56 @@ def test_failure_description_hides_the_reason_in_private_chat():
     assert "HTTP 429" in describe_failure(error, private=True)
     batch = describe_failure(error, private=False)
     assert "RateLimitError" in batch and "limite do plano atingido" in batch
+
+
+class _Delta:
+    def __init__(self, content):
+        self.content = content
+
+
+class _StreamChoice:
+    def __init__(self, content, finish_reason=None):
+        self.delta = _Delta(content)
+        self.finish_reason = finish_reason
+
+
+class _Chunk:
+    def __init__(self, content, finish_reason=None, empty=False):
+        self.choices = [] if empty else [_StreamChoice(content, finish_reason)]
+
+
+def test_streaming_joins_chunks_and_reports_finish_reason(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return iter(
+            [_Chunk(None, empty=True), _Chunk('{"a": '), _Chunk("1}"), _Chunk(None, "stop")]
+        )
+
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+
+    response = LiteLlmClient("k", "u", 30).complete(
+        ["m"], [], zdr=False, json_mode=True, max_tokens=10, temperature=0, stream=True
+    )
+
+    assert captured["stream"] is True
+    assert response.content == '{"a": 1}'
+    assert response.finish_reason == "stop"
+
+
+def test_batch_services_ask_for_streaming(with_llm):
+    seen = []
+    original = with_llm.llm.complete
+
+    def spy(models, messages, **kwargs):
+        seen.append(kwargs.get("stream"))
+        return original(models, messages, **kwargs)
+
+    with_llm.llm.complete = spy
+    with_llm.settings.persona_batch_size = 1
+    with_llm.__dict__.pop("persona_service", None)
+
+    with_llm.persona_service.run()
+
+    assert seen == [True]

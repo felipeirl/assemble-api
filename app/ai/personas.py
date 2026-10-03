@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.ai.llm import (
+    MAX_CONSECUTIVE_PROVIDER_FAILURES,
     InvalidModelOutputError,
     LlmClient,
     LlmUnavailableError,
@@ -136,15 +137,20 @@ class PersonaService:
             for character_id, doc in sorted(self._catalog.eligible().items())
             if character_id not in existing
         ][: self._batch_size]
+        unavailable_streak = 0
         for character_id, doc in pending:
             try:
                 self.generate(character_id, doc)
             except (LlmUnavailableError, InvalidModelOutputError, ValidationError) as exc:
                 logger.warning("Ficha de %s falhou: %s", character_id, type(exc).__name__)
                 report.failed.append(character_id)
-                if isinstance(exc, LlmUnavailableError):
+                unavailable_streak = (
+                    unavailable_streak + 1 if isinstance(exc, LlmUnavailableError) else 0
+                )
+                if unavailable_streak >= MAX_CONSECUTIVE_PROVIDER_FAILURES:
                     break
                 continue
+            unavailable_streak = 0
             report.generated.append(character_id)
         if report.generated:
             self._catalog.invalidate()
@@ -163,6 +169,7 @@ class PersonaService:
             max_tokens=PERSONA_MAX_TOKENS,
             temperature=PERSONA_TEMPERATURE,
             timeout=self._timeout,
+            stream=True,
         )
         boundaries = sheet.boundaries + [b for b in FIXED_BOUNDARIES if b not in sheet.boundaries]
         persona = {

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.llm import (
+    MAX_CONSECUTIVE_PROVIDER_FAILURES,
     InvalidModelOutputError,
     LlmClient,
     LlmUnavailableError,
@@ -114,15 +115,20 @@ class TranslationService:
             for character_id, doc in sorted(self._catalog.eligible().items())
             if is_pending(doc)
         ][: self._batch_size]
+        unavailable_streak = 0
         for character_id, doc in pending:
             try:
                 self.translate(character_id, doc)
             except (LlmUnavailableError, InvalidModelOutputError) as exc:
                 logger.warning("Tradução de %s falhou: %s", character_id, type(exc).__name__)
                 report.failed.append(character_id)
-                if isinstance(exc, LlmUnavailableError):
+                unavailable_streak = (
+                    unavailable_streak + 1 if isinstance(exc, LlmUnavailableError) else 0
+                )
+                if unavailable_streak >= MAX_CONSECUTIVE_PROVIDER_FAILURES:
                     break
                 continue
+            unavailable_streak = 0
             report.translated.append(character_id)
             logger.info("Traduzido %s", character_id)
         if report.translated:
@@ -151,6 +157,7 @@ class TranslationService:
             max_tokens=TRANSLATION_MAX_TOKENS,
             temperature=TRANSLATION_TEMPERATURE,
             timeout=self._timeout,
+            stream=True,
         )
         self._characters.upsert(
             character_id,

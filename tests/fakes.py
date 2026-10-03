@@ -15,7 +15,18 @@ class FakeLlm:
         self.fail = fail
         self.calls: list[dict] = []
 
-    def complete(self, models, messages, *, zdr, json_mode, max_tokens, temperature, timeout=None):
+    def complete(
+        self,
+        models,
+        messages,
+        *,
+        zdr,
+        json_mode,
+        max_tokens,
+        temperature,
+        timeout=None,
+        stream=False,
+    ):
         self.calls.append({"models": models, "messages": messages, "zdr": zdr})
         if self.fail:
             raise LlmUnavailableError("fake")

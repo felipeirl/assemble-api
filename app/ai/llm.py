@@ -18,6 +18,8 @@ import litellm  # noqa: E402
 litellm.suppress_debug_info = True
 
 JSON_ATTEMPTS = 2
+# Falhas seguidas do provedor que interrompem um lote (uma isolada costuma ser passageira).
+MAX_CONSECUTIVE_PROVIDER_FAILURES = 3
 ZDR_HEADER = {"x-cmd-zdr": "1"}
 OPENAI_COMPATIBLE_PREFIX = "openai/"
 
@@ -62,6 +64,7 @@ class LlmClient(Protocol):
         max_tokens: int,
         temperature: float,
         timeout: float | None = None,
+        stream: bool = False,
     ) -> LlmResponse: ...
 
 
@@ -81,8 +84,13 @@ class LiteLlmClient:
         max_tokens: int,
         temperature: float,
         timeout: float | None = None,
+        stream: bool = False,
     ) -> LlmResponse:
-        """Tenta cada modelo na ordem (principal, depois reserva)."""
+        """Tenta cada modelo na ordem (principal, depois reserva).
+
+        Com `stream`, a resposta chega aos poucos: o proxy do provedor encerra com HTTP 524 as
+        chamadas que ficam cerca de 100 s sem responder, o que acontece com textos longos.
+        """
         for model in models:
             try:
                 response = litellm.completion(
@@ -96,7 +104,10 @@ class LiteLlmClient:
                     temperature=temperature,
                     timeout=timeout or self._timeout,
                     num_retries=0,
+                    stream=stream,
                 )
+                if stream:
+                    return _collect_stream(response, model)
             except LITELLM_ERRORS as exc:
                 logger.warning("Modelo %s falhou: %s", model, describe_failure(exc, zdr))
                 continue
@@ -107,6 +118,22 @@ class LiteLlmClient:
                 finish_reason=getattr(choice, "finish_reason", None),
             )
         raise LlmUnavailableError(", ".join(models))
+
+
+def _collect_stream(chunks: Any, model: str) -> LlmResponse:
+    """Junta os pedaços de uma resposta em streaming."""
+    parts: list[str] = []
+    finish_reason = None
+    for chunk in chunks:
+        if not chunk.choices:
+            continue
+        choice = chunk.choices[0]
+        content = getattr(choice.delta, "content", None)
+        if content:
+            parts.append(content)
+        if getattr(choice, "finish_reason", None):
+            finish_reason = choice.finish_reason
+    return LlmResponse(content="".join(parts), model=model, finish_reason=finish_reason)
 
 
 def describe_failure(exc: Exception, private: bool) -> str:
