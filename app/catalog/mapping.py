@@ -24,6 +24,8 @@ class Mappings:
     tier_a_names: list[str]
     version: str
     superhero_matches: dict[str, int | None] = field(default_factory=dict)
+    tier_a_search_names: dict[str, str] = field(default_factory=dict)
+    tier_a_ids: dict[str, int] = field(default_factory=dict)
     accepted_publishers: frozenset[str] = frozenset()
 
     def origin(self, source_name: str | None) -> Origin | None:
@@ -67,6 +69,8 @@ def load_mappings(data_dir: Path = DATA_DIR) -> Mappings:
         tier_a_names=list(tier_a_file["names"]),
         version=version,
         superhero_matches=dict(superhero_file["matches"]),
+        tier_a_search_names=dict(tier_a_file.get("searchNames", {})),
+        tier_a_ids={k: int(v) for k, v in tier_a_file.get("comicVineIds", {}).items()},
         accepted_publishers=frozenset(superhero_file["acceptedPublishers"]),
     )
 

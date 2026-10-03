@@ -11,6 +11,7 @@ BASE_URL = "https://comicvine.gamespot.com/api"
 USER_AGENT = "AssembleBackend/0.1 (academic project)"
 MARVEL_PUBLISHER_ID = 31
 PAGE_SIZE = 100
+SEARCH_LIMIT = 10
 STATUS_OK = 1
 
 LIST_FIELDS = "id,name,real_name,publisher,count_of_issue_appearances,date_last_updated"
@@ -78,6 +79,20 @@ class ComicVineClient:
             },
         )
         return [item for item in body.get("results") or [] if is_marvel(item)]
+
+    def search_characters(self, name: str) -> list[dict[str, Any]]:
+        """Busca por nome em qualquer editora (uso da ferramenta find_character)."""
+        body = self._get(
+            RESOURCE_CHARACTERS,
+            "characters",
+            {
+                "filter": f"name:{name}",
+                "sort": "count_of_issue_appearances:desc",
+                "field_list": LIST_FIELDS,
+                "limit": SEARCH_LIMIT,
+            },
+        )
+        return body.get("results") or []
 
     def character(self, comicvine_id: int) -> dict[str, Any]:
         body = self._get(

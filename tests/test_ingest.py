@@ -365,3 +365,27 @@ def test_mapping_version_change_forces_refresh(clock):
     build_service(source, store, clock).run()
 
     assert any("4005-" in c for c in source.calls[calls:])
+
+
+def test_tier_a_search_name_and_fixed_id_overrides(clock):
+    store = MemoryStore()
+    service = build_service(FakeSource(), store, clock, tier_a_names=("Stormy", "Fixed"))
+    service._mappings = Mappings(
+        origins=service._mappings.origins,
+        powers=service._mappings.powers,
+        teams=service._mappings.teams,
+        tier_a_names=["Stormy", "Fixed"],
+        version=service._mappings.version,
+        superhero_matches=service._mappings.superhero_matches,
+        accepted_publishers=service._mappings.accepted_publishers,
+        tier_a_search_names={"Stormy": "Storm"},
+        tier_a_ids={"Fixed": STORM_ID},
+    )
+
+    report = service.run()
+
+    assert report.unresolved_tier_a == []
+    state = store.get("jobState/ingest")["tierA"]
+    assert state == {"Stormy": STORM_ID, "Fixed": STORM_ID}
+    assert store.get("characters/stormy") is not None
+    assert store.get("characters/fixed") is not None

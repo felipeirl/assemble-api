@@ -117,12 +117,15 @@ class IngestService:
     def _ingest_tier_a(self, state: dict[str, Any], report: IngestReport) -> None:
         resolved: dict[str, int] = state.setdefault("tierA", {})
         for name in self._mappings.tier_a_names:
-            comicvine_id = resolved.get(name)
-            if comicvine_id is None:
+            comicvine_id = resolved.get(name) or self._mappings.tier_a_ids.get(name)
+            if comicvine_id is not None:
+                resolved[name] = comicvine_id
+            else:
+                search = self._mappings.tier_a_search_names.get(name, name)
                 candidates = [
                     c
-                    for c in self._cv.find_marvel_characters_by_name(name)
-                    if normalize(c.get("name", "")) == normalize(name)
+                    for c in self._cv.find_marvel_characters_by_name(search)
+                    if normalize(c.get("name", "")) == normalize(search)
                 ]
                 if not candidates:
                     report.unresolved_tier_a.append(name)
