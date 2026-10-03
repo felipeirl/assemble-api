@@ -5,7 +5,11 @@
     "Mister Fantastic": "Mr. Fantastic",
     "Mister Sinister": "Mr. Sinister",
     "Shadowcat": "Kitty Pryde",
-    "Winter Soldier": "Bucky Barnes"
+    "Winter Soldier": "Bucky Barnes",
+    "Falcon": "Sam Wilson",
+    "Green Goblin": "Norman Osborn",
+    "America Chavez": "Miss America",
+    "Psylocke": "Betsy Braddock"
   },
   "comicVineIds": {},
   "names": [
@@ -35,7 +39,6 @@
     "Sif",
     "Beta Ray Bill",
     "Nick Fury",
-    "Maria Hill",
     "Wolverine",
     "Storm",
     "Cyclops",
