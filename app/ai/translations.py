@@ -154,6 +154,43 @@ class TranslationService:
 
     def translate(self, character_id: str, doc: dict[str, Any]) -> dict[str, str]:
         source = source_fields(doc)
+        try:
+            translated, model = self._request(character_id, source)
+        except LlmUnavailableError:
+            # Textos longos às vezes derrubam a conexão no meio da resposta: campo a campo,
+            # as respostas ficam curtas. O que não traduzir fica no original.
+            logger.info("Tradução inteira de %s falhou; tentando campo a campo.", character_id)
+            translated, model = self._request_by_field(character_id, source)
+        self._characters.upsert(
+            character_id,
+            {
+                "translations": {PT_BR: translated},
+                "translationHash": source_hash(source),
+                "translatedBy": model,
+                "translatedAt": self._clock.now(),
+            },
+        )
+        return translated
+
+    def _request_by_field(
+        self, character_id: str, source: dict[str, str]
+    ) -> tuple[dict[str, str], str]:
+        translated: dict[str, str] = {}
+        model = self._model
+        for key, text in source.items():
+            try:
+                part, model = self._request(character_id, {key: text})
+            except (LlmUnavailableError, InvalidModelOutputError) as exc:
+                logger.warning(
+                    "Campo %s de %s sem tradução (%s).", key, character_id, type(exc).__name__
+                )
+                continue
+            translated.update(part)
+        if not translated:
+            raise LlmUnavailableError(character_id)
+        return translated, model
+
+    def _request(self, character_id: str, source: dict[str, str]) -> tuple[dict[str, str], str]:
         response, translated = complete_and_parse(
             self._llm,
             [self._model],
@@ -176,13 +213,4 @@ class TranslationService:
             timeout=self._timeout,
             stream=True,
         )
-        self._characters.upsert(
-            character_id,
-            {
-                "translations": {PT_BR: translated},
-                "translationHash": source_hash(source),
-                "translatedBy": response.model,
-                "translatedAt": self._clock.now(),
-            },
-        )
-        return translated
+        return translated, response.model

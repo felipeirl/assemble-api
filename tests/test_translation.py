@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.ai.llm import InvalidModelOutputError
+from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
 from app.ai.translations import (
     is_pending,
     source_fields,
@@ -278,3 +278,52 @@ def test_parallel_translations_stop_after_three_consecutive_provider_failures(cl
     report = ready.translation_service.run()
 
     assert report.translated == [] and len(report.failed) == 4
+
+
+def _sent_keys(messages):
+    return list(json.loads(messages[-1]["content"].split("<<<TEXTOS\n")[1].split("\nTEXTOS>>>")[0]))
+
+
+def test_long_document_falls_back_to_field_by_field_translation(client, ready):
+    ready.store.update("characters/storm", {"occupation": "Adventurer", "base": "Xavier Institute"})
+    ready.catalog.invalidate()
+
+    def drops_connection_on_multi_field_requests(messages):
+        keys = _sent_keys(messages)
+        if len(keys) > 1:
+            raise LlmUnavailableError("conexão fechada no meio da resposta")
+        return json_reply({keys[0]: f"PT {keys[0]}"})
+
+    ready.llm = FakeLlm(drops_connection_on_multi_field_requests)
+
+    translated = ready.translation_service.translate(
+        "storm", ready.store.get("characters/storm") | {"aliases": ["x"]}
+    )
+
+    assert translated == {"bio": "PT bio", "occupation": "PT occupation", "base": "PT base"}
+    stored = ready.store.get("characters/storm")
+    assert stored["translations"]["pt-BR"] == translated
+    assert stored["translationHash"] == source_hash(source_fields(stored))
+
+
+def test_field_by_field_keeps_going_when_one_field_keeps_failing(client, ready):
+    ready.store.update("characters/storm", {"occupation": "Adventurer"})
+
+    def only_occupation_fails(messages):
+        keys = _sent_keys(messages)
+        if len(keys) > 1 or keys == ["occupation"]:
+            raise LlmUnavailableError("sempre falha")
+        return json_reply({keys[0]: f"PT {keys[0]}"})
+
+    ready.llm = FakeLlm(only_occupation_fails)
+
+    translated = ready.translation_service.translate("storm", ready.store.get("characters/storm"))
+
+    assert translated == {"bio": "PT bio"}
+
+
+def test_field_by_field_fails_only_when_nothing_could_be_translated(client, ready):
+    ready.llm = FakeLlm("", fail=True)
+
+    with pytest.raises(LlmUnavailableError):
+        ready.translation_service.translate("storm", ready.store.get("characters/storm"))
