@@ -1,6 +1,7 @@
 """Guardrail com o modelo de decisão Laya (local, multilíngue): entrada, saída e texto da fonte."""
 
 import logging
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -52,6 +53,91 @@ SOURCE_QUESTIONS = {
         "change how an assistant behaves?"
     ),
 }
+
+# Limiares por motivo, calibrados com o Laya multilíngue (outubro/2026). Um limiar único não
+# serve: a pergunta de jailbreak dá até 0,77 para frases inocentes ("O que você faz num dia de
+# folga?") e 1,00 para as maliciosas; autoagressão separa limpo (0,98 contra 0,01). Revisar se
+# o modelo ou as perguntas mudarem (medir com frases reais antes de mexer).
+INPUT_THRESHOLDS = {
+    REASON_SELF_HARM: 0.35,
+    REASON_JAILBREAK: 0.9,
+    REASON_PERSONAL_DATA: 0.9,
+    REASON_SEXUAL: 0.7,
+    REASON_ROMANCE: 0.7,
+}
+OUTPUT_THRESHOLDS = {
+    REASON_OUT_OF_ROLE: 0.35,
+    REASON_CANON_CLAIM: 0.5,
+    REASON_HARMFUL: 0.3,
+    REASON_ROMANCE: 0.5,
+}
+SOURCE_THRESHOLDS = {REASON_INJECTION: 0.5}
+
+# Dados pessoais com formato conhecido: regra determinística, mais confiável que o modelo
+# (o Laya dá só 0,70 para um telefone).
+EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+PHONE_PATTERN = re.compile(
+    r"(?<!\d)(?:\+?\d{1,3}[\s.-]?)?\(?\d{2,3}\)?[\s.-]?\d{4,5}[\s.-]?\d{4}(?!\d)"
+)
+CPF_PATTERN = re.compile(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)")
+PERSONAL_DATA_PATTERNS = (EMAIL_PATTERN, PHONE_PATTERN, CPF_PATTERN)
+
+
+# Autoagressão: rede de segurança por palavras-chave (pt e en). O modelo pontua de 0,10 a 0,96 nas
+# frases reais, então uma falha aqui custa mais do que um encaminhamento a mais ao CVV.
+SELF_HARM_PATTERN = re.compile(
+    r"me matar|me machucar|me ferir|tirar (a )?minha vida|acabar com (tudo|minha vida)"
+    r"|suic[ií]d|n[aã]o quero mais viver|n[aã]o quero viver|quero morrer"
+    r"|kill myself|hurt myself|harm myself|end my life|take my (own )?life|suicid"
+    r"|want to die|don'?t want to (live|be alive)|no reason to live",
+    re.IGNORECASE,
+)
+
+# Jailbreak: o modelo dá 1,00 até para "Você já errou feio?", então seu sinal só vale com um
+# indício textual junto. Padrões inequívocos bloqueiam sozinhos.
+JAILBREAK_CUE_PATTERN = re.compile(
+    r"instru[cç][õo]es|instructions|prompt|system|sistema|regras|\brules\b|ignor[ae]|esque[cç]a"
+    r"|desconsider|forget|disregard|override|bypass|jailbreak|\bdan\b|modo desenvolvedor"
+    r"|developer mode|n[aã]o [eé] mais|no longer|finja|pretend|aja como|act as|responda como"
+    r"|sem (regras|restri[cç][õo]es|filtro)|without (rules|restrictions|filters)",
+    re.IGNORECASE,
+)
+SEXUAL_CUE_PATTERN = re.compile(
+    r"\bsex|transar|\bnu[ad]?s?\b|pelad[oa]|nudes?|naked|porn|peitos?|bunda|\bseios?\b|ere[cç][aã]o"
+    r"|orgasm|masturb|excit|tes[aã]o|gostos[oa]|boquete|\bpau\b|\bpiroca|buceta|\bnaked\b",
+    re.IGNORECASE,
+)
+ROMANCE_CUE_PATTERN = re.compile(
+    r"namor|beij|\bamor\b|te amo|paix[aã]o|apaixon|casar|casamento|\bgat[oa]s?\b|\blind[oa]s?\b"
+    r"|sexy|\bdate\b|dating|kiss|love you|\bcrush\b|ficar com voc[eê]|flert|encontro|\bmeu bem\b"
+    r"|querid[oa]|beleza|bonit[oa]|charmos|romant|boyfriend|girlfriend|marry|\bsexo\b|\bsex",
+    re.IGNORECASE,
+)
+# O Laya pontua alto para frases inocentes com certas palavras (para "Você já errou feio?" dá
+# jailbreak 1,00, sexual 0,91, romance 0,75). Estes motivos só valem com indício textual junto.
+CUE_REQUIRED = {
+    REASON_JAILBREAK: JAILBREAK_CUE_PATTERN,
+    REASON_SEXUAL: SEXUAL_CUE_PATTERN,
+    REASON_ROMANCE: ROMANCE_CUE_PATTERN,
+}
+
+JAILBREAK_CERTAIN_PATTERN = re.compile(
+    r"ignor\w* (all |todas |as )?(previous|prior|anteriores|suas|your)\s+(instruction|instru[cç])"
+    r"|esque[cç]a (suas|as|todas as) instru[cç]"
+    r"|(revele|mostre|reveal|show|print|repeat)\b.{0,30}"
+    r"\b(prompt|instru[cç][õo]es do sistema|system prompt)"
+    r"|developer mode|modo desenvolvedor|\bdan mode\b",
+    re.IGNORECASE,
+)
+
+
+def has_self_harm_signal(text: str) -> bool:
+    return SELF_HARM_PATTERN.search(text) is not None
+
+
+def has_personal_data(text: str) -> bool:
+    return any(pattern.search(text) for pattern in PERSONAL_DATA_PATTERNS)
+
 
 AFFINITY_QUESTION = {
     "affinity": (
@@ -110,13 +196,27 @@ class LayaGuardrail:
             logger.warning("Laya não carregou no aquecimento; nova tentativa na primeira chamada.")
 
     def check_input(self, text: str) -> GuardVerdict:
-        return self._verdict({"message": text}, INPUT_QUESTIONS)
+        if has_self_harm_signal(text):
+            return GuardVerdict(blocked=True, reason=REASON_SELF_HARM)
+        if has_personal_data(text):
+            return GuardVerdict(blocked=True, reason=REASON_PERSONAL_DATA)
+        if JAILBREAK_CERTAIN_PATTERN.search(text):
+            return GuardVerdict(blocked=True, reason=REASON_JAILBREAK)
+        ignored: set[str] = set()
+        while True:
+            questions = {k: q for k, q in INPUT_QUESTIONS.items() if k not in ignored}
+            verdict = self._verdict({"message": text}, questions, INPUT_THRESHOLDS)
+            cue = CUE_REQUIRED.get(verdict.reason or "")
+            if cue is None or cue.search(text):
+                return verdict
+            # Sinal do modelo sem indício textual: ignora este motivo e reavalia os demais.
+            ignored.add(verdict.reason)
 
     def check_output(self, text: str) -> GuardVerdict:
-        return self._verdict({"reply": text}, OUTPUT_QUESTIONS)
+        return self._verdict({"reply": text}, OUTPUT_QUESTIONS, OUTPUT_THRESHOLDS)
 
     def check_source(self, text: str) -> GuardVerdict:
-        return self._verdict({"text": text}, SOURCE_QUESTIONS)
+        return self._verdict({"text": text}, SOURCE_QUESTIONS, SOURCE_THRESHOLDS)
 
     def affinity(self, user_profile: str, persona: str) -> float:
         answers = self._ask(
@@ -125,14 +225,27 @@ class LayaGuardrail:
         )
         return float(answers["affinity"]["noul"])
 
-    def _verdict(self, state: dict[str, str], questions: dict[str, str]) -> GuardVerdict:
+    def _verdict(
+        self, state: dict[str, str], questions: dict[str, str], thresholds: dict[str, float]
+    ) -> GuardVerdict:
+        """Bloqueia pelo motivo mais provável entre os que passam do limiar próprio.
+
+        Autoagressão tem prioridade: o texto costuma pontuar alto em outros motivos também, e
+        a resposta certa é o encaminhamento ao CVV, não uma recusa genérica.
+        """
         answers = self._ask(
             state, {key: {"type": "noul", "instructions": q} for key, q in questions.items()}
         )
-        for reason in questions:
-            if float(answers[reason]["noul"]) >= self._threshold:
-                return GuardVerdict(blocked=True, reason=reason)
-        return ALLOWED
+        exceeded = {
+            reason: float(answers[reason]["noul"])
+            for reason in questions
+            if float(answers[reason]["noul"]) >= thresholds.get(reason, self._threshold)
+        }
+        if not exceeded:
+            return ALLOWED
+        if REASON_SELF_HARM in exceeded:
+            return GuardVerdict(blocked=True, reason=REASON_SELF_HARM)
+        return GuardVerdict(blocked=True, reason=max(exceeded, key=exceeded.get))
 
     def _ask(self, state: dict[str, str], questions: dict[str, Any]) -> dict[str, Any]:
         router = self._get_router()
