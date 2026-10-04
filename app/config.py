@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     match_weight_affinity: float = 0.3
     match_weight_chance: float = 0.1
     match_cutoff: float = 0.55
+
+    @field_validator("chat_model", "chat_fallback_model")
+    @classmethod
+    def _chat_model_must_not_train_on_messages(cls, value: str | None) -> str | None:
+        """Modelos "contributor" treinam com o que recebem: proibidos no chat (mensagens de
+        usuários). Eles só servem para dados públicos de personagens (PERSONA_MODEL)."""
+        if value and "contributor" in value.lower():
+            raise ValueError(
+                f"{value!r} treina com os dados enviados e não pode ser usado no chat. "
+                "Use um modelo com retenção zero, como qwen/qwen3.7-flash."
+            )
+        return value
 
 
 @lru_cache

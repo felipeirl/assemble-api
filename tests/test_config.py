@@ -37,3 +37,19 @@ def test_blank_values_from_env_example_count_as_unset(monkeypatch):
     assert settings.comicvine_api_key is None
     assert settings.firebase_service_account_json is None
     assert settings.messages_per_hour == 60
+
+
+def test_chat_models_that_train_on_data_are_rejected():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="não pode ser usado no chat"):
+        Settings(_env_file=None, chat_model="meta/muse-spark-1.3-contributor")
+    with pytest.raises(ValidationError, match="não pode ser usado no chat"):
+        Settings(_env_file=None, chat_fallback_model="meta/Muse-Spark-Contributor")
+
+
+def test_contributor_model_is_still_allowed_for_public_persona_data():
+    settings = Settings(_env_file=None, persona_model="meta/muse-spark-1.3-contributor")
+
+    assert settings.persona_model == "meta/muse-spark-1.3-contributor"
