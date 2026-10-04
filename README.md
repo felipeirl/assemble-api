@@ -125,6 +125,18 @@ Todas exigem o header `X-Jobs-Key` e respondem `202`: o trabalho segue em segund
 
 Com o backend sempre no ar (Cloud Run), acrescente um `schedule` ao `jobs.yml`.
 
+## Guardrail (Laya)
+
+O Laya multilíngue roda na CPU e faz perguntas sim/não sobre cada mensagem. Os limiares foram **calibrados com frases reais** (37 inocentes, 0 bloqueadas; 10 maliciosas, todas bloqueadas), porque um limiar único não serve: o modelo dá 1,00 de "jailbreak" até para "Você já errou feio?".
+
+- **Autoagressão:** palavras-chave em pt e en, mais o modelo (limiar 0,35). Responde com o encaminhamento ao CVV 188.
+- **E-mail, telefone e CPF:** regras determinísticas; o Laya sozinho não os detecta de forma confiável.
+- **Jailbreak, sexual e romance:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
+- **Saída do modelo e bio da fonte:** limiares próprios (`app/ai/guardrail.py`).
+- **Chat só com modelos de retenção zero.** Modelos `contributor` treinam com o que recebem e são recusados na configuração; ficam restritos às fichas e traduções (dados públicos).
+
+Ao trocar o modelo do Laya ou as perguntas, meça de novo antes de mexer nos limiares.
+
 ## Idioma (pt-BR)
 
 - **Nomes:** tabela curada `data/names_ptbr.json` (`characterId` → nome em português). Sem entrada, vale o nome original; nunca se inventa tradução. Para acrescentar, edite o arquivo e suba o campo `version`.
