@@ -82,8 +82,10 @@ def test_the_html_has_an_english_version_and_loads_nothing_external():
 
     assert subject == "Confirm your email on Assemble"
     assert "Confirm email" in page
-    assert "http://" not in page.replace(LINK, "") and "<img" not in page
-    assert "<link" not in page and "@import" not in page
+    # Sem hospedagem externa: o logo vai junto no e-mail (cid) e nada é buscado na internet.
+    assert 'src="cid:assemble-logo"' in page
+    assert "http://" not in page.replace(LINK, "")
+    assert "<link" not in page and "@import" not in page and "<script" not in page
 
 
 def test_the_mailer_sends_text_and_html_through_smtp(smtp):
@@ -97,8 +99,10 @@ def test_the_mailer_sends_text_and_html_through_smtp(smtp):
     assert smtp.logins == [("assemble@test.dev", "senha-de-app")]
     assert message["To"] == "ana@example.com"
     assert message["From"] == "Assemble <assemble@test.dev>"
-    kinds = {part.get_content_type() for part in message.iter_parts()}
-    assert kinds == {"text/plain", "text/html"}
+    kinds = {part.get_content_type() for part in message.walk()}
+    assert {"text/plain", "text/html", "image/png"} <= kinds
+    logo = next(part for part in message.walk() if part.get_content_type() == "image/png")
+    assert logo["Content-ID"] == "<assemble-logo>" and logo.get_content_type() == "image/png"
 
 
 def test_an_smtp_failure_becomes_a_mailer_error():

@@ -12,6 +12,7 @@ import ssl
 from collections.abc import Callable
 from email.message import EmailMessage
 from email.utils import formataddr
+from pathlib import Path
 from typing import Any
 
 from app.i18n import EN, PT_BR
@@ -44,6 +45,11 @@ COPY = {
         "footer": "Projeto acadêmico. Não é afiliado à Marvel, à Comic Vine nem a qualquer editora. "
         "Toda conversa é ficção gerada por IA.",
         "text_intro": "Confirme o seu e-mail para liberar a sua conta no Assemble:",
+        "tagline": "Descubra personagens. Converse com eles.",
+        "step1": "Toque no botão abaixo",
+        "step2": "Volte ao app",
+        "step3": "Comece a descobrir",
+        "security": "Por segurança, o link vale por pouco tempo e só funciona uma vez.",
     },
     EN: {
         "subject": "Confirm your email on Assemble",
@@ -57,6 +63,11 @@ COPY = {
         "footer": "Academic project. Not affiliated with Marvel, Comic Vine or any publisher. "
         "Every chat is AI-generated fiction.",
         "text_intro": "Confirm your email to unlock your Assemble account:",
+        "tagline": "Discover characters. Talk to them.",
+        "step1": "Tap the button below",
+        "step2": "Go back to the app",
+        "step3": "Start discovering",
+        "security": "For your safety, the link expires soon and works only once.",
     },
 }
 
@@ -67,12 +78,32 @@ class MailerError(Exception):
     """O e-mail não pôde ser enviado (SMTP fora do ar ou recusado)."""
 
 
-def render_verification(name: str, link: str, locale: str) -> tuple[str, str, str]:
-    """(assunto, texto simples, HTML) do e-mail de verificação."""
+LOGO_CID = "assemble-logo"
+LOGO_PATH = Path(__file__).parent / "assets" / "assemble-logo.png"
+
+
+def render_verification(
+    name: str, link: str, locale: str, logo_src: str = f"cid:{LOGO_CID}"
+) -> tuple[str, str, str]:
+    """(assunto, texto simples, HTML) do e-mail de verificação.
+
+    `logo_src` é `cid:` no e-mail (a imagem vai junto, como parte do e-mail) e uma URL `data:`
+    na prévia aberta no navegador.
+    """
     copy = COPY.get(locale, COPY[EN])
     safe_name = html.escape(name)
     safe_link = html.escape(link, quote=True)
     greeting = copy["greeting"].format(name=safe_name)
+    step = (
+        f'<td width="33%" align="center" valign="top" style="padding:0 6px;font-family:{BODY_FONT};">'
+        f'<div style="width:30px;height:30px;line-height:30px;border-radius:15px;background:{MIDNIGHT};'
+        f"color:#FFFFFF;font-family:{HEADING_FONT};font-weight:800;font-size:16px;text-align:center;"
+        f'margin:0 auto 8px auto;">{{n}}</div>'
+        f'<div style="font-size:12px;line-height:1.4;color:{SLATE};">{{label}}</div></td>'
+    )
+    steps = "".join(
+        step.format(n=n, label=copy[key]) for n, key in ((1, "step1"), (2, "step2"), (3, "step3"))
+    )
     page = f"""<!doctype html>
 <html lang="{locale}">
 <head>
@@ -84,28 +115,37 @@ def render_verification(name: str, link: str, locale: str) -> tuple[str, str, st
 <body style="margin:0;padding:0;background:{OFF_WHITE};">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;">{copy["preheader"]}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{OFF_WHITE};">
-<tr><td align="center" style="padding:24px 12px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:24px;overflow:hidden;">
-<tr><td bgcolor="{LOGO_RED}" style="padding:28px 32px;background:{HERO_RED};background-image:linear-gradient(135deg,{LOGO_RED},{LOGO_PINK});">
-<div style="font-family:{HEADING_FONT};font-weight:800;font-size:34px;letter-spacing:1px;line-height:1;color:#FFFFFF;text-transform:uppercase;">Assemble</div>
+<tr><td align="center" style="padding:28px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:28px;overflow:hidden;">
+<tr><td align="center" bgcolor="{MIDNIGHT}" style="padding:36px 32px 28px 32px;background:{MIDNIGHT};">
+<img src="{logo_src}" width="84" height="106" alt="Assemble" style="display:block;border:0;outline:none;width:84px;height:106px;">
+<div style="margin-top:16px;font-family:{HEADING_FONT};font-weight:800;font-size:38px;letter-spacing:3px;line-height:1;color:#FFFFFF;text-transform:uppercase;">Assemble</div>
+<div style="margin-top:8px;font-family:{BODY_FONT};font-size:13px;letter-spacing:.5px;color:{MIST};">{copy["tagline"]}</div>
 </td></tr>
-<tr><td style="padding:32px 32px 8px 32px;font-family:{BODY_FONT};color:{INK};">
+<tr><td height="6" bgcolor="{LOGO_RED}" style="height:6px;line-height:6px;font-size:0;background:{LOGO_RED};background-image:linear-gradient(90deg,{LOGO_RED},{LOGO_PINK});">&nbsp;</td></tr>
+<tr><td style="padding:36px 36px 8px 36px;font-family:{BODY_FONT};color:{INK};">
 <div style="font-size:15px;color:{SLATE};">{greeting}</div>
-<h1 style="margin:8px 0 12px 0;font-family:{HEADING_FONT};font-weight:800;font-size:32px;line-height:1.05;text-transform:uppercase;color:{MIDNIGHT};">{copy["title"]}</h1>
-<p style="margin:0 0 24px 0;font-size:16px;line-height:1.5;color:{INK};">{copy["body"]}</p>
+<h1 style="margin:8px 0 14px 0;font-family:{HEADING_FONT};font-weight:800;font-size:36px;line-height:1.05;text-transform:uppercase;color:{MIDNIGHT};">{copy["title"]}</h1>
+<p style="margin:0 0 28px 0;font-size:16px;line-height:1.55;color:{INK};">{copy["body"]}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-<td bgcolor="{LOGO_RED}" style="border-radius:16px;background:{LOGO_RED};">
-<a href="{safe_link}" style="display:inline-block;padding:14px 28px;font-family:{BODY_FONT};font-size:16px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:16px;">{copy["button"]}</a>
+<td align="center" bgcolor="{LOGO_RED}" style="border-radius:18px;background:{LOGO_RED};background-image:linear-gradient(135deg,{LOGO_RED},{LOGO_PINK});">
+<a href="{safe_link}" style="display:inline-block;padding:17px 40px;font-family:{BODY_FONT};font-size:17px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:18px;">{copy["button"]}</a>
+</td></tr></table>
 </td></tr></table>
 </td></tr>
-<tr><td style="padding:24px 32px 8px 32px;font-family:{BODY_FONT};font-size:13px;line-height:1.5;color:{SLATE};">
+<tr><td style="padding:32px 30px 4px 30px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{steps}</tr></table>
+</td></tr>
+<tr><td style="padding:28px 36px 8px 36px;font-family:{BODY_FONT};font-size:13px;line-height:1.55;color:{SLATE};">
 <div>{copy["fallback"]}</div>
 <div style="margin-top:6px;word-break:break-all;"><a href="{safe_link}" style="color:{HERO_RED};">{safe_link}</a></div>
 </td></tr>
-<tr><td style="padding:16px 32px 28px 32px;font-family:{BODY_FONT};font-size:13px;line-height:1.5;color:{SLATE};">
-{copy["ignore"]}
+<tr><td style="padding:16px 36px 32px 36px;font-family:{BODY_FONT};font-size:13px;line-height:1.55;color:{SLATE};">
+<div>{copy["security"]}</div>
+<div style="margin-top:6px;">{copy["ignore"]}</div>
 </td></tr>
-<tr><td bgcolor="{MIDNIGHT}" style="padding:18px 32px;background:{MIDNIGHT};font-family:{BODY_FONT};font-size:12px;line-height:1.5;color:{MIST};">
+<tr><td bgcolor="{MIDNIGHT}" style="padding:22px 36px;background:{MIDNIGHT};font-family:{BODY_FONT};font-size:12px;line-height:1.55;color:{MIST};">
 {copy["footer"]}
 </td></tr>
 </table>
@@ -144,6 +184,9 @@ class VerificationMailer:
         message["To"] = to
         message.set_content(text)
         message.add_alternative(page, subtype="html")
+        message.get_body(("html",)).add_related(
+            LOGO_PATH.read_bytes(), maintype="image", subtype="png", cid=f"<{LOGO_CID}>"
+        )
         try:
             self._deliver(message)
         except (OSError, smtplib.SMTPException) as exc:
