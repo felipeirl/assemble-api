@@ -15,6 +15,7 @@ from app.catalog.names import display_name
 from app.catalog.summary import tagline
 from app.clock import Clock
 from app.domain import deck as deck_rules
+from app.domain import taste as taste_rules
 from app.domain.compatibility import score, traits_in_common
 from app.domain.enums import Choice
 from app.domain.models import CharacterTraits, Preferences
@@ -66,9 +67,16 @@ class DeckService:
         prefs = self._users.preferences(uid)
         decided = self._decisions.decided_ids(uid)
         decided_today = self._decisions.count_on_date(uid, date)
-        pool = self._candidates(prefs, decided)
+        pool, traits = self._candidates(prefs, decided)
+        taste = self._taste(uid)
+        learned = {
+            character_id: taste_rules.affinity(taste, found)
+            for character_id, found in traits.items()
+        }
         rng = self._rng_factory()
-        chosen = deck_rules.select_deck(pool, max(0, self._deck_size - decided_today), rng)
+        chosen = deck_rules.select_mixed_deck(
+            pool, max(0, self._deck_size - decided_today), rng, learned, taste.confidence
+        )
         rng.shuffle(chosen)
         cards = []
         for character_id in chosen:
@@ -110,20 +118,39 @@ class DeckService:
             return None
         return character_id
 
-    def _candidates(self, prefs: Preferences, decided: set[str]) -> list[deck_rules.Candidate]:
-        """Personagens elegíveis que o usuário ainda não decidiu, com a nota de cada um."""
+    def _candidates(
+        self, prefs: Preferences, decided: set[str]
+    ) -> tuple[list[deck_rules.Candidate], dict[str, CharacterTraits]]:
+        """Elegíveis que o usuário ainda não decidiu, com a nota e as características."""
         now = self._clock.now()
-        return [
-            deck_rules.Candidate(
-                character_id=character_id,
-                score=score(prefs, CharacterTraits.model_validate(doc)),
-                origin=doc.get("origin"),
-                teams=tuple(doc.get("teams") or ()),
-                is_new=deck_rules.is_new(doc.get("ingestedAt"), now),
+        candidates: list[deck_rules.Candidate] = []
+        traits: dict[str, CharacterTraits] = {}
+        for character_id, doc in self._catalog.eligible().items():
+            if character_id in decided:
+                continue
+            found = CharacterTraits.model_validate(doc)
+            traits[character_id] = found
+            candidates.append(
+                deck_rules.Candidate(
+                    character_id=character_id,
+                    score=score(prefs, found),
+                    origin=doc.get("origin"),
+                    teams=tuple(doc.get("teams") or ()),
+                    is_new=deck_rules.is_new(doc.get("ingestedAt"), now),
+                )
             )
-            for character_id, doc in self._catalog.eligible().items()
-            if character_id not in decided
-        ]
+        return candidates, traits
+
+    def _taste(self, uid: str) -> taste_rules.Taste:
+        """Gosto aprendido: Assemble conta a favor das características, Pass contra."""
+        history = []
+        for character_id, choice in self._decisions.choices(uid).items():
+            doc = self._catalog.get(character_id)
+            if doc is not None:
+                history.append(
+                    (CharacterTraits.model_validate(doc), choice == Choice.ASSEMBLE.value)
+                )
+        return taste_rules.learn(history)
 
 
 def build_card(character_id: str, doc: dict[str, Any], prefs: Preferences, locale: str) -> DeckCard:

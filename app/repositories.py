@@ -87,6 +87,12 @@ class DecisionRepository:
     def count(self, uid: str) -> int:
         return self._store.count(decisions_path(uid))
 
+    def choices(self, uid: str) -> dict[str, str]:
+        """characterId -> PASS ou ASSEMBLE de todas as decisões do usuário."""
+        return {
+            doc_id: doc.get("choice", "") for doc_id, doc in self._store.query(decisions_path(uid))
+        }
+
     def count_on_date(self, uid: str, date: str) -> int:
         """Decisões tomadas no dia do baralho (a cota diária descontada)."""
         return self._store.count(decisions_path(uid), filters=(("deckDate", "==", date),))

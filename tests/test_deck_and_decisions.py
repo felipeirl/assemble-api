@@ -105,7 +105,7 @@ def test_deck_day_document_is_stored_and_the_cards_are_drawn(client, seeded):
     first = deck(client)
 
     stored = seeded.store.get(f"users/{UID}/decks/{first['date']}")
-    assert stored["algorithmVersion"] == "deck-v2"
+    assert stored["algorithmVersion"] == "deck-v3"
     assert "characterIds" not in stored  # a lista não é fixa: cada abertura sorteia de novo
     assert first["total"] == 4
     assert first["remaining"] == 4

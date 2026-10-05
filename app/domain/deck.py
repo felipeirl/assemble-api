@@ -1,12 +1,20 @@
-"""Sorteio do baralho: compatibilidade + variedade + novidade + muita sorte. Funções puras."""
+"""Sorteio do baralho: metade pela compatibilidade declarada, metade por sugestões aprendidas.
 
+Funções puras.
+"""
+
+import math
 import random
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-ALGORITHM_VERSION = "deck-v2"
+ALGORITHM_VERSION = "deck-v3"
+# Fração do baralho que vem do gosto aprendido (as sugestões); o resto, da compatibilidade.
+SUGGESTION_SHARE = 0.5
+SCORE_SCALE = 100
+NEUTRAL_AFFINITY = 0.5
 NOVELTY_WINDOW = timedelta(days=14)
 NOVELTY_BONUS = 0.45  # na escala da nota já multiplicada por SCORE_WEIGHT (0,15 × 3)
 # Penalidade pela fração do baralho já ocupada pela mesma origem e equipes (cresce de 0 a ~2 vezes
@@ -66,6 +74,37 @@ def select_deck(
             origin_counts[best.origin] += 1
         team_counts.update(best.teams)
     return selected
+
+
+def select_mixed_deck(
+    candidates: list[Candidate],
+    size: int,
+    rng: random.Random,
+    learned: dict[str, float],
+    confidence: float,
+    luck: float = JITTER,
+) -> list[str]:
+    """Metade dos cards pela compatibilidade declarada, metade por sugestões do gosto aprendido.
+
+    As sugestões saem do que sobrou depois da primeira metade, então são personagens que as
+    preferências declaradas não escolheriam. `learned` vai de 0 a 1 (0,5 = neutro) e `confidence`,
+    de 0 a 1, diz quanto confiar nele: sem decisões, todos valem o mesmo e a escolha cai na
+    variedade e na sorte (explora); com muitas, segue o gosto aprendido.
+    """
+    declared = select_deck(candidates, math.ceil(size * (1 - SUGGESTION_SHARE)), rng, luck)
+    taken = set(declared)
+    remaining = [c for c in candidates if c.character_id not in taken]
+    affinities = [learned.get(c.character_id, NEUTRAL_AFFINITY) for c in remaining]
+    # O gosto aprendido é uma média de muitas características e fica espremido perto de 0,5;
+    # esticá-lo para a escala toda entre os candidatos faz a diferença valer frente à sorte.
+    low, high = min(affinities, default=0.0), max(affinities, default=0.0)
+    spread = (high - low) or 1.0
+    rest = []
+    for candidate, affinity in zip(remaining, affinities, strict=True):
+        stretched = (affinity - low) / spread if high > low else NEUTRAL_AFFINITY
+        blended = confidence * stretched + (1 - confidence) * NEUTRAL_AFFINITY
+        rest.append(replace(candidate, score=round(blended * SCORE_SCALE)))
+    return declared + select_deck(rest, size - len(declared), rng, luck)
 
 
 def local_date(now: datetime, tz: ZoneInfo) -> date:

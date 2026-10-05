@@ -179,6 +179,16 @@ O provedor rejeita com 400 um esforço que o modelo não aceita; por isso o valo
 - **Como sorteia** (`app/domain/deck.py`): nota de compatibilidade (peso `SCORE_WEIGHT` = 3), bônus de novidade, penalidade de variedade proporcional (a fração do baralho já ocupada pela mesma origem e equipes) e sorte `JITTER` de 0 a 0,6. Com esse peso, entram cerca de 20 dos 25 personagens mais compatíveis (com peso 1 eram 15) e a nota média do baralho sobe de 74 para 78 (o conjunto todo tem 72). Para favorecer mais ou menos, mude `SCORE_WEIGHT`: 4 dá 22 dos 25 melhores e baralhos mais parecidos entre aberturas. Medido com duas contas reais: 18 de 40 personagens em comum entre pessoas e 23 de 40 entre duas aberturas da mesma conta, antes eram 28 e 35.
 - A penalidade de variedade antiga somava 0,1 por repetição e passava de 2,0 no meio da seleção; por isso os personagens de origem rara entravam sempre e o baralho era quase igual para todos.
 
+### Metade compatíveis, metade sugestões
+
+O baralho de 40 cards tem duas metades, sem marca no card:
+
+- **20 compatíveis:** os de maior nota com as preferências declaradas, como descrito acima.
+- **20 sugestões:** o que sobrou, escolhido pelo **gosto aprendido** (`app/domain/taste.py`). Cada Assemble conta a favor das características do personagem (origem, equipe, poderes, estilo e faixa de fama) e cada Pass contra. O gosto é recalculado das decisões a cada baralho, sem guardar nada: o Undo já se reflete sozinho, e as preferências declaradas nunca são alteradas.
+- **Começo:** sem decisões, as sugestões exploram (variedade e sorte). A confiança no gosto aprendido cresce até 100% em 20 decisões (`CONFIDENT_AFTER_DECISIONS`); antes disso, é proporcional.
+- **Medido com um usuário sintético** (gosta de mutantes e X-Men; catálogo real; chance de curtir sem critério: 0,42): as sugestões agradam 0,37 sem decisões, 0,56 com 10, 0,66 com 20 e 0,68 com 40. Sem esticar o gosto entre os candidatos, eram só 0,47 com 40.
+- A chance de match continua usando só a compatibilidade declarada.
+
 ## Card do baralho
 
 Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quando existe), com até 140 caracteres e sem o título de seção do Comic Vine. Sem bio, o campo não vem.
