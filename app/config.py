@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     chat_model: str | None = None
     chat_fallback_model: str | None = None
     persona_model: str | None = None
+    # Esforço de raciocínio por modelo de chat. Raciocinar custa de 10 a 30 s por resposta e o chat
+    # precisa ser rápido; cada modelo aceita valores diferentes (o Gemini não desliga, o DeepSeek
+    # sim). Modelo fora da tabela é chamado sem o parâmetro.
+    chat_reasoning_efforts: dict[str, str] = {
+        "google/gemini-3.8-flash": "low",
+        "deepseek/deepseek-v4.1-flash": "off",
+    }
     jobs_key: SecretStr | None = None
     default_timezone: str = "America/Sao_Paulo"
 

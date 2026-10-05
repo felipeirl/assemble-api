@@ -52,6 +52,24 @@ def test_reply_uses_zdr_both_models_and_returns_suggestions():
     assert result.model == "main"
 
 
+def test_chat_passes_the_reasoning_effort_of_each_model():
+    llm = FakeLlm(chat_reply)
+    efforts = {"main": "low", "reserve": "off"}
+    chat = ChatEngine(llm, FakeGuardrail(), ["main", "reserve"], reasoning_efforts=efforts)
+
+    chat.respond(request())
+
+    assert llm.calls[-1]["reasoning_efforts"] == efforts
+
+
+def test_default_settings_turn_off_or_limit_reasoning_for_the_chat_models():
+    from app.config import Settings
+
+    efforts = Settings().chat_reasoning_efforts
+    assert efforts["google/gemini-3.8-flash"] == "low"
+    assert efforts["deepseek/deepseek-v4.1-flash"] == "off"
+
+
 def test_prompt_contains_rules_facts_persona_and_delimited_summary():
     llm = FakeLlm(chat_reply)
 

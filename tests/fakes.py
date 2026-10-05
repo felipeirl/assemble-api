@@ -26,8 +26,16 @@ class FakeLlm:
         temperature,
         timeout=None,
         stream=False,
+        reasoning_efforts=None,
     ):
-        self.calls.append({"models": models, "messages": messages, "zdr": zdr})
+        self.calls.append(
+            {
+                "models": models,
+                "messages": messages,
+                "zdr": zdr,
+                "reasoning_efforts": reasoning_efforts,
+            }
+        )
         if self.fail:
             raise LlmUnavailableError("fake")
         content = self._reply(messages) if callable(self._reply) else self._reply

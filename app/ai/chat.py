@@ -13,7 +13,8 @@ from app.catalog.names import display_name
 from app.catalog.text import truncate
 from app.timing import timed
 
-CHAT_MAX_TOKENS = 250
+# Folga para o caso de o modelo raciocinar um pouco: o raciocínio também conta no limite.
+CHAT_MAX_TOKENS = 400
 CHAT_TEMPERATURE = 0.8
 GENERATION_ATTEMPTS = 3
 FIXED_REPLY_MODEL = "fixed"
@@ -64,10 +65,17 @@ def character_context(character_id: str, doc: dict[str, Any], locale: str = "en"
 
 
 class ChatEngine:
-    def __init__(self, llm: LlmClient, guardrail: Guardrail, models: list[str]) -> None:
+    def __init__(
+        self,
+        llm: LlmClient,
+        guardrail: Guardrail,
+        models: list[str],
+        reasoning_efforts: dict[str, str] | None = None,
+    ) -> None:
         self._llm = llm
         self._guardrail = guardrail
         self._models = models
+        self._reasoning_efforts = reasoning_efforts or {}
 
     def respond(self, request: ChatRequest) -> ChatResult:
         """Levanta BlockedInputError, LlmUnavailableError ou GuardrailUnavailableError."""
@@ -107,6 +115,7 @@ class ChatEngine:
                     json_mode=True,
                     max_tokens=CHAT_MAX_TOKENS,
                     temperature=CHAT_TEMPERATURE,
+                    reasoning_efforts=self._reasoning_efforts,
                 )
             reply, suggestions = parse_reply(response.content)
             if reply:

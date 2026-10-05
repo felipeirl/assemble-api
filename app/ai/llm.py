@@ -65,6 +65,7 @@ class LlmClient(Protocol):
         temperature: float,
         timeout: float | None = None,
         stream: bool = False,
+        reasoning_efforts: dict[str, str] | None = None,
     ) -> LlmResponse: ...
 
 
@@ -85,8 +86,12 @@ class LiteLlmClient:
         temperature: float,
         timeout: float | None = None,
         stream: bool = False,
+        reasoning_efforts: dict[str, str] | None = None,
     ) -> LlmResponse:
         """Tenta cada modelo na ordem (principal, depois reserva).
+
+        `reasoning_efforts` diz, por modelo, quanto ele pode raciocinar antes de responder; modelo
+        fora da tabela vai sem o parâmetro (um valor que o modelo não aceita dá erro 400).
 
         Com `stream`, a resposta chega aos poucos: o proxy do provedor encerra com HTTP 524 as
         chamadas que ficam cerca de 100 s sem responder, o que acontece com textos longos.
@@ -105,6 +110,7 @@ class LiteLlmClient:
                     timeout=timeout or self._timeout,
                     num_retries=0,
                     stream=stream,
+                    extra_body=_reasoning_body(model, reasoning_efforts),
                 )
                 if stream:
                     return _collect_stream(response, model)
@@ -118,6 +124,11 @@ class LiteLlmClient:
                 finish_reason=getattr(choice, "finish_reason", None),
             )
         raise LlmUnavailableError(", ".join(models))
+
+
+def _reasoning_body(model: str, efforts: dict[str, str] | None) -> dict[str, str] | None:
+    effort = (efforts or {}).get(model)
+    return {"reasoning_effort": effort} if effort else None
 
 
 def _collect_stream(chunks: Any, model: str) -> LlmResponse:

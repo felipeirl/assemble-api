@@ -154,6 +154,18 @@ Função pura em `app/domain/compatibility.py`, idêntica ao `CompatibilityCalcu
 
 Ao mudar a tabela, mude também no Android.
 
+## Velocidade do chat (raciocínio dos modelos)
+
+Modelos que raciocinam gastam de 1.000 a 2.500 tokens "pensando" antes de uma resposta de uma frase: 10 a 30 s por mensagem. O chat usa modelos escolhidos por medida (`CHAT_MODEL` e `CHAT_FALLBACK_MODEL` no `.env`) e o esforço de raciocínio de cada um vem de `CHAT_REASONING_EFFORTS` (`app/config.py`):
+
+| Modelo | Esforço | Resposta (mediana) |
+|---|---|---|
+| `google/gemini-3.8-flash` (principal) | `low` (não aceita `off`) | 3,6 s |
+| `deepseek/deepseek-v4.1-flash` (reserva) | `off` | 4,4 s |
+| `qwen/qwen3.7-flash` (antes) | não desliga | 11,9 s |
+
+O provedor rejeita com 400 um esforço que o modelo não aceita; por isso o valor é por modelo, e modelo fora da tabela vai sem o parâmetro. Chat exige retenção zero (`x-cmd-zdr`): modelos sem ela são recusados pelo provedor. Ao trocar de modelo, meça de novo (latência, tokens de raciocínio e respostas truncadas) antes de adotar.
+
 ## Regenerar e voltar a conversa
 
 - `POST /v2/connections/{id}/messages/regenerate`: gera outra resposta no lugar da última do personagem. A mensagem mantém o `id`, então quem escuta o Firestore vê o texto mudar no lugar. Responde `409 nothing_to_regenerate` se a última mensagem não é do personagem ou se a anterior foi recusada. Conta no limite de mensagens por hora, mas não em `userMessageCount`. Se só existe a fala de abertura, gera outra abertura.

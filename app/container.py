@@ -59,7 +59,9 @@ class Container:
         models = [m for m in (self.settings.chat_model, self.settings.chat_fallback_model) if m]
         if self.llm is None or self.guardrail is None or not models:
             return None
-        return ChatEngine(self.llm, self.guardrail, models)
+        return ChatEngine(
+            self.llm, self.guardrail, models, reasoning_efforts=self.settings.chat_reasoning_efforts
+        )
 
     @cached_property
     def conversation_service(self) -> ConversationService:
