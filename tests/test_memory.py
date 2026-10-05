@@ -52,7 +52,7 @@ def connected(container, client, llm):
 
 
 def seed_conversation(container, total, start=0, clock_start=None):
-    """Mensagens alternadas usuário/personagem (a abertura já existe), com userMessageCount certo."""
+    """Mensagens alternadas usuário/personagem (a abertura já existe) e o contador certo."""
     base = clock_start or container.clock.now()
     for i in range(start, total):
         author = "USER" if i % 2 == 0 else "CHARACTER"
