@@ -1,6 +1,8 @@
 """Módulo de IA do chat (seção 10): sem estado; recebe persona, histórico e mensagem."""
 
+import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -10,10 +12,13 @@ from app.ai.llm import InvalidModelOutputError, LlmClient, parse_json_object
 from app.catalog.names import display_name
 from app.catalog.text import truncate
 
-CHAT_MAX_TOKENS = 400
+CHAT_MAX_TOKENS = 250
 CHAT_TEMPERATURE = 0.8
+GENERATION_ATTEMPTS = 3
 FIXED_REPLY_MODEL = "fixed"
 CHARACTER_FACT_KEYS = ("id", "name", "realName", "origin", "powers", "teams", "firstAppearance")
+
+REPLY_FIELD_PATTERN = re.compile(r'"reply"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +77,7 @@ class ChatEngine:
             if verdict.blocked:
                 raise BlockedInputError(verdict.reason or "blocked")
 
-        response = self._llm.complete(
-            self._models,
-            self._messages(request),
-            zdr=True,
-            json_mode=True,
-            max_tokens=CHAT_MAX_TOKENS,
-            temperature=CHAT_TEMPERATURE,
-        )
-        reply, suggestions = parse_reply(response.content)
-        if not reply:
-            raise InvalidModelOutputError("Resposta vazia")
+        response, reply, suggestions = self._generate(request)
 
         output = self._guardrail.check_output(reply)
         if output.blocked:
@@ -97,6 +92,23 @@ class ChatEngine:
             model=response.model,
             prompt_version=prompts.PROMPT_VERSION,
         )
+
+    def _generate(self, request: ChatRequest) -> tuple[Any, str, list[str]]:
+        """Chama o modelo; uma resposta sem texto (formato errado) é pedida de novo uma vez."""
+        for attempt in range(GENERATION_ATTEMPTS):
+            response = self._llm.complete(
+                self._models,
+                self._messages(request),
+                zdr=True,
+                json_mode=True,
+                max_tokens=CHAT_MAX_TOKENS,
+                temperature=CHAT_TEMPERATURE,
+            )
+            reply, suggestions = parse_reply(response.content)
+            if reply:
+                return response, reply, suggestions
+            logger.info("Resposta sem texto (tentativa %d).", attempt + 1)
+        raise InvalidModelOutputError("Resposta vazia")
 
     def _messages(self, request: ChatRequest) -> list[dict[str, str]]:
         facts = {k: v for k, v in request.character.items() if k != "summary"}
@@ -151,8 +163,13 @@ def parse_reply(content: str) -> tuple[str, list[str]]:
     try:
         data = parse_json_object(content)
     except InvalidModelOutputError:
-        return content.strip(), []
-    reply = str(data.get("reply") or "").strip()
+        # JSON quebrado: o texto da resposta ainda pode ser lido, o resto não vai ao usuário.
+        match = REPLY_FIELD_PATTERN.search(content)
+        if match:
+            return json.loads(f'"{match.group(1)}"'), []
+        return ("" if content.lstrip().startswith(("[", "{")) else content.strip()), []
+    reply = data.get("reply")
+    reply = reply.strip() if isinstance(reply, str) else ""
     raw = data.get("suggestions")
     suggestions = [
         str(item).strip()[: prompts.SUGGESTION_MAX_CHARS]

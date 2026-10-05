@@ -211,6 +211,8 @@ def parse_json_object(content: str) -> dict[str, Any]:
         value = json.loads(text)
     except json.JSONDecodeError:
         value = _first_json_object(text)
+    if isinstance(value, list) and value and isinstance(value[0], dict):
+        value = value[0]  # o modelo às vezes embrulha o objeto numa lista
     if not isinstance(value, dict):
         raise InvalidModelOutputError("Esperado objeto JSON")
     return value

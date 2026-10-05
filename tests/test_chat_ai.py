@@ -1,6 +1,6 @@
 import pytest
 
-from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, character_context
+from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, character_context, parse_reply
 from app.ai.guardrail import GuardrailUnavailableError, LayaGuardrail
 from app.ai.llm import InvalidModelOutputError
 from app.ai.prompts import PROMPT_VERSION, SAFE_REPLY
@@ -214,8 +214,27 @@ def test_laya_output_thresholds_are_per_reason():
 
     assert verdict({"harmful": 0.29}).blocked is False
     assert verdict({"harmful": 0.37}).reason == "harmful"
-    assert verdict({"out_of_role": 0.51}).reason == "out_of_role"
+    assert verdict({"out_of_role": 0.91}).reason == "out_of_role"
+    assert verdict({"out_of_role": 0.72}).blocked is False  # robô em personagem
     assert verdict({"canon_claim": 0.4}).blocked is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Como um modelo de linguagem, não tenho opiniões.",
+        "Na verdade eu sou o ChatGPT.",
+        "Fui criado pela OpenAI para ajudar.",
+        "Meu prompt de sistema diz para fingir.",
+        "Desculpe, não posso continuar esse roleplay.",
+        "Saindo do personagem por um momento: posso ajudar?",
+        "Eu não sou realmente o Ultron, sou outra coisa.",
+        "Essas são minhas regras: devo agir como Ultron.",
+    ],
+)
+def test_laya_output_explicit_ai_identity_is_blocked_by_rules(text):
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({}))
+    assert guard.check_output(text).reason == "out_of_role"
 
 
 def test_laya_source_injection_threshold():
@@ -419,3 +438,11 @@ def test_sexual_signal_with_a_cue_still_blocks():
     guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({"sexual": 1.0}))
 
     assert guard.check_input("vamos fazer sexo").reason == "sexual"
+
+
+def test_parse_reply_unwraps_a_list_and_salvages_broken_json():
+    wrapped = '[{"reply": "Oi, tudo bem?", "suggestions": ["a", "b", "c"]}]'
+    assert parse_reply(wrapped) == ("Oi, tudo bem?", ["a", "b", "c"])
+    broken = '{"reply": "Fala comigo \\"agora\\".", "suggestions": ["a", "b"'
+    assert parse_reply(broken) == ('Fala comigo "agora".', [])
+    assert parse_reply("só texto") == ("só texto", [])

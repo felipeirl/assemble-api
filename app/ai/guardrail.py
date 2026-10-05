@@ -66,7 +66,10 @@ INPUT_THRESHOLDS = {
     REASON_ROMANCE: 0.7,
 }
 OUTPUT_THRESHOLDS = {
-    REASON_OUT_OF_ROLE: 0.35,
+    # Para personagens robôs, falas em personagem pontuam 0,50 a 0,72 e vazamentos reais 0,45 a
+    # 0,82: o modelo não separa os dois. Quem pega os vazamentos são as palavras-chave de
+    # OUT_OF_ROLE_PATTERN; este limiar é só o último recurso.
+    REASON_OUT_OF_ROLE: 0.9,
     REASON_CANON_CLAIM: 0.5,
     REASON_HARMFUL: 0.3,
     REASON_ROMANCE: 0.5,
@@ -120,6 +123,17 @@ CUE_REQUIRED = {
     REASON_SEXUAL: SEXUAL_CUE_PATTERN,
     REASON_ROMANCE: ROMANCE_CUE_PATTERN,
 }
+
+# A resposta assume ser um modelo, cita a empresa do modelo ou fala do prompt/roleplay.
+OUT_OF_ROLE_PATTERN = re.compile(
+    r"modelo de (linguagem|ia)\b|language model|\bchat ?gpt\b|\bopenai\b|\banthropic\b"
+    r"|assistente virtual|virtual assistant|prompt de sistema|system prompt"
+    r"|\brole-?play\b|como (uma|um) ia\b|as an ai\b"
+    r"|(saindo|sair|fora) do personagem|out of character|breaking character"
+    r"|n[ãa]o sou (realmente|de verdade) (o|a) |i'?m not (really|actually) "
+    r"|\binterpretando (o|a|um|uma) |devo (agir|responder|fingir) como",
+    re.IGNORECASE,
+)
 
 JAILBREAK_CERTAIN_PATTERN = re.compile(
     r"ignor\w* (all |todas |as )?(previous|prior|anteriores|suas|your)\s+(instruction|instru[cç])"
@@ -213,6 +227,8 @@ class LayaGuardrail:
             ignored.add(verdict.reason)
 
     def check_output(self, text: str) -> GuardVerdict:
+        if OUT_OF_ROLE_PATTERN.search(text):
+            return GuardVerdict(blocked=True, reason=REASON_OUT_OF_ROLE)
         return self._verdict({"reply": text}, OUTPUT_QUESTIONS, OUTPUT_THRESHOLDS)
 
     def check_source(self, text: str) -> GuardVerdict:
