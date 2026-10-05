@@ -47,7 +47,8 @@ def json_reply(payload: dict) -> str:
 
 
 def chat_reply(messages: list[dict]) -> str:
-    last = messages[-1]["content"]
+    # A nota interna de condução vai na mesma mensagem do usuário; a resposta ecoa só o texto dele.
+    last = messages[-1]["content"].split("\n\n(Internal note")[0]
     return json_reply({"reply": f"Resposta a: {last[:40]}", "suggestions": DEFAULT_SUGGESTIONS})
 
 

@@ -237,7 +237,7 @@ def test_history_is_sent_to_the_model(client, connected):
 
     last_call = connected.llm.calls[-1]["messages"]
     contents = [m["content"] for m in last_call[1:]]
-    assert contents[-1] == "Segunda"
+    assert contents[-1].startswith("Segunda")
     assert "Primeira" in contents
 
 
@@ -402,7 +402,8 @@ def test_regenerate_asks_the_model_for_the_same_user_message(client, connected, 
     regenerate(client)
 
     messages_sent = connected.llm.calls[-1]["messages"]
-    assert messages_sent[-1] == {"role": "user", "content": "Qual é o seu maior sonho?"}
+    assert messages_sent[-1]["role"] == "user"
+    assert messages_sent[-1]["content"].startswith("Qual é o seu maior sonho?")
     assert [m["role"] for m in messages_sent].count("assistant") == 1  # só a fala de abertura
 
 

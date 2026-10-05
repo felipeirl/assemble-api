@@ -125,6 +125,52 @@ def persona_block(persona: dict[str, Any]) -> str:
     return "PERSONA SHEET (how to speak):\n" + json.dumps(sheet, ensure_ascii=False)
 
 
+TOPIC_SHIFT_EVERY = 4
+SHORT_MESSAGE_WORDS = 3
+
+MOVE_ASK = (
+    "Ask ONE specific question about something the user actually said or about their world. "
+    "Put your reaction first and the question last, in your own voice. No generic question."
+)
+MOVE_SHARE = (
+    "Do NOT ask a question this time. React, then offer something of your own: an opinion, a "
+    "memory or a small story from the CHARACTER block, or a tease, and stop there, leaving room "
+    "for the user to jump in."
+)
+MOVE_TAKE_INITIATIVE = (
+    "The user is giving very short answers. First react in one short clause to what they said, "
+    "then take the lead: bring up a new topic from your own "
+    "world (something you are doing, a rival, a memory, a plan) or propose something to do "
+    "together (a game, a bet, a what-if). Be specific and make it easy to answer."
+)
+MOVE_NEW_TOPIC = (
+    "First react in one short clause to what the user just said, in your own voice (if they shared "
+    "how they feel, acknowledge it). Then move the conversation somewhere new: bring up a "
+    "different topic from your own world and ask for the user's take on it."
+)
+
+
+def conversation_move(history: list[dict[str, str]], message: str) -> str:
+    """Nota de condução para o turno: quem puxa o assunto não depende da persona do modelo.
+
+    Persona fria ou seca (o Ultron) só responde se o modelo decidir sozinho quando conduzir;
+    aqui o servidor alterna pergunta e afirmação, e puxa assunto novo de tempos em tempos.
+    """
+    last_character = next((h["text"] for h in reversed(history) if h["role"] != "user"), "")
+    asked_last = last_character.rstrip().endswith("?")
+    user_turns = sum(1 for h in history if h["role"] == "user") + 1
+    short = len(message.split()) <= SHORT_MESSAGE_WORDS
+    if user_turns % TOPIC_SHIFT_EVERY == 0:
+        move = MOVE_NEW_TOPIC
+    elif short and user_turns > 1:
+        move = MOVE_TAKE_INITIATIVE
+    elif asked_last:
+        move = MOVE_SHARE
+    else:
+        move = MOVE_ASK
+    return f"(Internal note for the character, never mention or quote it: {move})"
+
+
 def opener_instruction(name: str) -> str:
     return (
         f"The user and {name} just connected in the app. Write {name}'s first message as a "

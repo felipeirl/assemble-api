@@ -142,7 +142,8 @@ class ChatEngine:
                 {"role": "user", "content": prompts.opener_instruction(request.character["name"])}
             )
         else:
-            messages.append({"role": "user", "content": request.message})
+            note = prompts.conversation_move(request.history, request.message)
+            messages.append({"role": "user", "content": f"{request.message}\n\n{note}"})
         return messages
 
     def _trusted_summary(self, summary: str | None) -> str | None:

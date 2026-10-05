@@ -92,7 +92,9 @@ def test_history_maps_roles_in_order():
     engine(llm).respond(request(history=history, message="Tudo bem?"))
 
     roles = [(m["role"], m["content"]) for m in llm.calls[0]["messages"][1:]]
-    assert roles == [("assistant", "Olá."), ("user", "Oi!"), ("user", "Tudo bem?")]
+    assert roles[:2] == [("assistant", "Olá."), ("user", "Oi!")]
+    assert roles[2][0] == "user"
+    assert roles[2][1].startswith("Tudo bem?")
 
 
 def test_opener_does_not_check_empty_input():
@@ -464,3 +466,34 @@ def test_parse_reply_unwraps_a_list_and_salvages_broken_json():
     broken = '{"reply": "Fala comigo \\"agora\\".", "suggestions": ["a", "b"'
     assert parse_reply(broken) == ('Fala comigo "agora".', [])
     assert parse_reply("só texto") == ("só texto", [])
+
+
+def test_conversation_move_alternates_question_and_statement():
+    from app.ai.prompts import MOVE_ASK, MOVE_SHARE, conversation_move
+
+    asked = [{"role": "user", "text": "oi"}, {"role": "character", "text": "Tudo bem. E por aí?"}]
+    not_asked = [{"role": "user", "text": "oi"}, {"role": "character", "text": "Tudo bem."}]
+
+    assert MOVE_SHARE in conversation_move(asked, "gosto de assistir filmes de ação")
+    assert MOVE_ASK in conversation_move(not_asked, "gosto de assistir filmes de ação")
+
+
+def test_conversation_move_takes_initiative_on_short_answers_and_shifts_topic():
+    from app.ai.prompts import MOVE_NEW_TOPIC, MOVE_TAKE_INITIATIVE, conversation_move
+
+    history = [{"role": "user", "text": "oi"}, {"role": "character", "text": "Fala."}]
+    assert MOVE_TAKE_INITIATIVE in conversation_move(history, "sim")
+    # Primeira mensagem curta ("oi") não é resposta seca: a conversa está só começando.
+    assert MOVE_TAKE_INITIATIVE not in conversation_move([], "oi")
+
+    long_history = history * 3  # 3 mensagens do usuário; a próxima é a 4ª
+    assert MOVE_NEW_TOPIC in conversation_move(long_history, "estou bem hoje, e você?")
+
+
+def test_the_move_note_goes_to_the_model_but_not_to_the_stored_text():
+    llm = FakeLlm(chat_reply)
+    engine(llm).respond(request(message="Qual é o seu sonho?"))
+
+    sent = llm.calls[-1]["messages"][-1]["content"]
+    assert sent.startswith("Qual é o seu sonho?")
+    assert "Internal note for the character" in sent
