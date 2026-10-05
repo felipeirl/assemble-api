@@ -290,6 +290,6 @@ O comando gera `data/superhero_review.json`. Confirme o id na fonte, copie o par
 
 ## Versões e licença
 
-As versões contam como um odômetro (`0.0.9` → `0.1.0`: ao chegar em 9, avança a casa seguinte), uma por grande adição, e estão no [`CHANGELOG.md`](CHANGELOG.md); cada uma tem uma tag `vX.Y.Z`. A versão atual está em `pyproject.toml`. Para lançar: atualize a versão e o changelog, faça o commit e crie a tag (`git tag -a v0.1.2 -m "v0.1.2"`).
+As versões contam como um odômetro (`0.0.9` → `0.1.0`: ao chegar em 9, avança a casa seguinte), uma por grande adição, e estão no [`CHANGELOG.md`](CHANGELOG.md); cada uma tem uma tag `vX.Y.Z`. A versão atual está em `pyproject.toml`. Para lançar: atualize a versão e o changelog, faça o commit e crie a tag (`git tag -a v0.1.3 -m "v0.1.3"`).
 
 Código sob a licença [MIT](LICENSE). Os dados dos personagens pertencem às suas fontes (veja *Fontes e licenças*).

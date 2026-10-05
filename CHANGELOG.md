@@ -2,6 +2,19 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). As versões contam como um odômetro: cada release é uma grande adição e o número sobe de um em um (`0.0.8`, `0.0.9`, `0.1.0`, `0.1.1`...). Ao chegar em 9, avança a casa seguinte. Correções pequenas entram na release seguinte.
 
+## [0.1.2] - 2026-10-05
+
+### Adicionado
+- Verificação de e-mail no cadastro por e-mail e senha: a conta só usa o app depois de confirmar o e-mail. Enquanto isso, as rotas respondem `403 email_not_verified` (o login com Google já vem confirmado; `REQUIRE_EMAIL_VERIFICATION` desliga o bloqueio).
+- `POST /v2/account/email-verification`: manda o link de confirmação em **HTML com o design system do app**, por SMTP (uma conta do Gmail com senha de app serve, sem domínio próprio). Sem SMTP, o app usa o e-mail padrão do Firebase. Reenvio limitado a um por minuto.
+- Elogios simples e educados são recebidos de braços abertos, no jeito de falar do personagem: um simpático agradece com simpatia, e um arrogante, como o Ultron, agradece em tom de superioridade.
+- Insinuações sexuais sem termo explícito são recusadas pelo próprio personagem, na sua voz, deixando claro que os dois não têm essa intimidade.
+
+### Alterado
+- Só o pedido sexual explícito é barrado pelo guardrail, por regra de palavras; a pergunta sexual do Laya saiu (dava 0,01 para frases explícitas).
+- Na saída, os sinais "nocivo" e "canônico" do Laya só valem com uma palavra-indício: respostas carinhosas inocentes eram trocadas pela recusa genérica.
+- A documentação diz "Assemble" e "conexão" no lugar de "match" (nomes de campos e variáveis do contrato continuam iguais).
+
 ## [0.1.1] - 2026-10-05
 
 ### Adicionado
