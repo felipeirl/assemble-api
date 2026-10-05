@@ -78,7 +78,7 @@ Opcionais (valores padrão em `app/config.py`):
 |---|---|---|
 | `MATCH_WEIGHT_COMPATIBILITY` / `_AFFINITY` / `_CHANCE` | 0.6 / 0.3 / 0.1 | pesos p1, p2, p3 do match |
 | `MATCH_CUTOFF` | 0.55 | corte do match |
-| `DECK_SIZE` | 30 | personagens por dia |
+| `DECK_SIZE` | 40 | personagens por dia |
 | `MESSAGES_PER_HOUR` | 60 | limite de mensagens por usuário |
 | `CHAT_HISTORY_LIMIT` | 20 | mensagens enviadas ao modelo |
 | `GUARDRAIL_ENABLED` / `GUARDRAIL_THRESHOLD` | true / 0.5 | Laya e limiar de bloqueio |

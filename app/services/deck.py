@@ -1,4 +1,4 @@
-"""Baralho diário (seção 8): até 30 por dia, sem reposição, Undo do último Pass."""
+"""Baralho diário (seção 8): até 40 por dia, sem reposição, Undo do último Pass."""
 
 import random
 from typing import Any

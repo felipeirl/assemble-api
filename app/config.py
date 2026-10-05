@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     personality_max_chars: int = 2000
 
     # Baralho diário (seção 8)
-    deck_size: int = 30
+    deck_size: int = 40
     catalog_cache_seconds: int = 600
 
     # IA (seções 9.3 e 10)
