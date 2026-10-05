@@ -17,7 +17,7 @@ SHEET = {
     "values": ["proteger os outros", "liberdade"],
     "speechPatterns": ["trata o interlocutor com respeito formal"],
     "relationships": ["X-Men como família"],
-    "boundaries": ["não fala de romance"],
+    "boundaries": ["não fala de romance"],  # ficha antiga
     "sampleLines": ["Paciência também é um tipo de clima."],
     "styles": ["Leadership", "Idealist", "Wizardry"],
 }
@@ -56,7 +56,7 @@ def test_generates_pending_personas_and_feeds_styles(with_llm, clock):
     assert persona["voice"] == "calma, solene, frases curtas"
     assert persona["styles"] == ["Leadership", "Idealist"]
     assert set(FIXED_BOUNDARIES) <= set(persona["boundaries"])
-    assert persona["boundaries"].count("não fala de romance") == 1
+    assert persona["boundaries"].count(FIXED_BOUNDARIES[0]) == 1
     assert persona["reviewed"] is False
     assert persona["generatedBy"] == "persona-model"
     assert persona["generatedAt"] == clock.now()

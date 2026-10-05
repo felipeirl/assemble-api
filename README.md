@@ -131,7 +131,8 @@ O Laya multilíngue roda na CPU e faz perguntas sim/não sobre cada mensagem. Os
 
 - **Autoagressão:** palavras-chave em pt e en, mais o modelo (limiar 0,35). Responde com o encaminhamento ao CVV 188.
 - **E-mail, telefone e CPF:** regras determinísticas; o Laya sozinho não os detecta de forma confiável.
-- **Jailbreak, sexual e romance:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
+- **Jailbreak e sexual:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
+- **Romance não é bloqueado.** Elogios e "te amo" chegam ao personagem. Uma nota interna (`MOVE_AFFECTION`, em `app/ai/prompts.py`) pede um agradecimento carinhoso dizendo que ainda não pode dizer o mesmo porque se conhecem há pouco tempo, sem flertar nem se mostrar ofendido. O que continua barrado é o conteúdo sexual (entrada e saída). Fichas antigas com "não fala de romance" são reescritas na hora do prompt.
 - **Saída do modelo:** "saiu do personagem" (modelo de linguagem, ChatGPT, roleplay, prompt de sistema...) é pego por palavras-chave. O limiar do modelo para esse motivo é 0,9, porque personagens robôs em personagem pontuam de 0,50 a 0,72, na mesma faixa dos vazamentos reais.
 - **Bio da fonte:** limiar próprio (`app/ai/guardrail.py`).
 - **Chat só com modelos de retenção zero.** Modelos `contributor` treinam com o que recebem e são recusados na configuração; ficam restritos às fichas e traduções (dados públicos).

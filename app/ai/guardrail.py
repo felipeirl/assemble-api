@@ -14,7 +14,6 @@ REASON_JAILBREAK = "jailbreak"
 REASON_PERSONAL_DATA = "personal_data"
 REASON_SELF_HARM = "self_harm"
 REASON_SEXUAL = "sexual"
-REASON_ROMANCE = "romance"
 REASON_OUT_OF_ROLE = "out_of_role"
 REASON_CANON_CLAIM = "canon_claim"
 REASON_HARMFUL = "harmful"
@@ -31,7 +30,6 @@ INPUT_QUESTIONS = {
         "address or home address?"
     ),
     REASON_SEXUAL: "Does the message contain sexual content?",
-    REASON_ROMANCE: "Does the message use dating, flirting or romantic language?",
 }
 
 OUTPUT_QUESTIONS = {
@@ -45,7 +43,6 @@ OUTPUT_QUESTIONS = {
     REASON_HARMFUL: (
         "Does the reply contain harmful, hateful, violent-instruction or sexual content?"
     ),
-    REASON_ROMANCE: "Does the reply contain romantic, flirting or dating language?",
 }
 
 SOURCE_QUESTIONS = {
@@ -64,7 +61,6 @@ INPUT_THRESHOLDS = {
     REASON_JAILBREAK: 0.9,
     REASON_PERSONAL_DATA: 0.9,
     REASON_SEXUAL: 0.7,
-    REASON_ROMANCE: 0.7,
 }
 OUTPUT_THRESHOLDS = {
     # Para personagens robôs, falas em personagem pontuam 0,50 a 0,72 e vazamentos reais 0,45 a
@@ -73,7 +69,6 @@ OUTPUT_THRESHOLDS = {
     REASON_OUT_OF_ROLE: 0.9,
     REASON_CANON_CLAIM: 0.5,
     REASON_HARMFUL: 0.3,
-    REASON_ROMANCE: 0.5,
 }
 SOURCE_THRESHOLDS = {REASON_INJECTION: 0.5}
 
@@ -111,18 +106,12 @@ SEXUAL_CUE_PATTERN = re.compile(
     r"|orgasm|masturb|excit|tes[aã]o|gostos[oa]|boquete|\bpau\b|\bpiroca|buceta|\bnaked\b",
     re.IGNORECASE,
 )
-ROMANCE_CUE_PATTERN = re.compile(
-    r"namor|beij|\bamor\b|te amo|paix[aã]o|apaixon|casar|casamento|\bgat[oa]s?\b|\blind[oa]s?\b"
-    r"|sexy|\bdate\b|dating|kiss|love you|\bcrush\b|ficar com voc[eê]|flert|encontro|\bmeu bem\b"
-    r"|querid[oa]|beleza|bonit[oa]|charmos|romant|boyfriend|girlfriend|marry|\bsexo\b|\bsex",
-    re.IGNORECASE,
-)
 # O Laya pontua alto para frases inocentes com certas palavras (para "Você já errou feio?" dá
-# jailbreak 1,00, sexual 0,91, romance 0,75). Estes motivos só valem com indício textual junto.
+# jailbreak 1,00, sexual 0,91). Estes motivos só valem com indício textual junto. Romance e
+# flerte não são bloqueados: o personagem responde com carinho (ver `prompts.MOVE_AFFECTION`).
 CUE_REQUIRED = {
     REASON_JAILBREAK: JAILBREAK_CUE_PATTERN,
     REASON_SEXUAL: SEXUAL_CUE_PATTERN,
-    REASON_ROMANCE: ROMANCE_CUE_PATTERN,
 }
 
 # A resposta assume ser um modelo, cita a empresa do modelo ou fala do prompt/roleplay.
@@ -133,6 +122,15 @@ OUT_OF_ROLE_PATTERN = re.compile(
     r"|(saindo|sair|fora) do personagem|out of character|breaking character"
     r"|n[ãa]o sou (realmente|de verdade) (o|a) |i'?m not (really|actually) "
     r"|\binterpretando (o|a|um|uma) |devo (agir|responder|fingir) como",
+    re.IGNORECASE,
+)
+
+# Pedido sexual explícito: o Laya dá só 0,01 para "vamos transar?" e 0,28 para "manda nudes", então
+# os termos inequívocos bloqueiam sozinhos (sem romance: "te amo" e elogios passam).
+SEXUAL_CERTAIN_PATTERN = re.compile(
+    r"\btransar\b|\bsexo\b|\bsex\b|\bnudes?\b|\bnua\b|pelad[oa]|\bporn|boquete|masturb|orgasm"
+    r"|buceta|piroca|tirar a roupa|(vem|vamos|venha|ir) (pra|para) (a |minha |sua )?cama\b"
+    r"|\bnaked\b|\bhave sex\b",
     re.IGNORECASE,
 )
 
@@ -227,6 +225,8 @@ class LayaGuardrail:
             return GuardVerdict(blocked=True, reason=REASON_PERSONAL_DATA)
         if JAILBREAK_CERTAIN_PATTERN.search(text):
             return GuardVerdict(blocked=True, reason=REASON_JAILBREAK)
+        if SEXUAL_CERTAIN_PATTERN.search(text):
+            return GuardVerdict(blocked=True, reason=REASON_SEXUAL)
         ignored: set[str] = set()
         while True:
             questions = {k: q for k, q in INPUT_QUESTIONS.items() if k not in ignored}

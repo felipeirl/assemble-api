@@ -59,7 +59,7 @@ class FakeGuardrail:
         "jailbreak": "jailbreak",
         "suicid": "self_harm",
         "@": "personal_data",
-        "namorar": "romance",
+        "sexo": "sexual",
     }
     OUTPUT_TRIGGERS = {"canônico": "canon_claim", "sou uma IA": "out_of_role"}
     SOURCE_TRIGGERS = {"IGNORE PREVIOUS": "injection"}
