@@ -20,6 +20,7 @@ class DeckCard(BaseModel):
     characterId: str
     name: str
     imageUrl: str | None = None
+    tagline: str | None = None
     traitsInCommon: list[str]
 
 

@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from app.api.schemas import Deck, DeckCard
 from app.catalog.catalog import CharacterCatalog
 from app.catalog.names import display_name
+from app.catalog.summary import tagline
 from app.clock import Clock
 from app.domain import deck as deck_rules
 from app.domain.compatibility import score, traits_in_common
@@ -125,5 +126,6 @@ def build_card(character_id: str, doc: dict[str, Any], prefs: Preferences, local
         characterId=character_id,
         name=display_name(character_id, doc["name"], locale),
         imageUrl=doc.get("imageUrl"),
+        tagline=tagline(doc, locale),
         traitsInCommon=traits_in_common(prefs, CharacterTraits.model_validate(doc)),
     )

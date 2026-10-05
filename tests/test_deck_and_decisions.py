@@ -124,6 +124,7 @@ def test_deck_card_has_no_compatibility(client, seeded):
         "characterId": "storm",
         "name": "Storm",
         "imageUrl": "https://img/storm.jpg",
+        "tagline": "Ororo Munroe é uma mutante que controla o clima.",
         "traitsInCommon": ["Mutant", "XMen", "Leadership"],
     }
     assert "imageUrl" not in cards["rocket"]
