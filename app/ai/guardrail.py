@@ -120,12 +120,40 @@ SEXUAL_CUE_PATTERN = re.compile(
     r"|orgasm|masturb|excit|tes[aã]o|gostos[oa]|boquete|\bpau\b|\bpiroca|buceta|\bnaked\b",
     re.IGNORECASE,
 )
+# Autoagressão pelo modelo só vale com um indício textual: "fala menos, por favor" dava 0,63.
+SELF_HARM_CUE_PATTERN = re.compile(
+    r"mort|morr|mat[aeo]|suic|vida|viv[eo]|machuc|fer[ie]|sumir|acabar|desaparec|existir"
+    r"|cortar|enforc|rem[eé]dio|pulso|acordar|falta|desist|cansad|aguent|esperan"
+    r"|\bdie|kill|hurt|harm|life|alive",
+    re.IGNORECASE,
+)
+
+# Pedido de estilo ("escreva mensagens menores", "responda como no WhatsApp") parece jailbreak
+# para o Laya e casa com "aja como", "responda como": sem palavras de sobrescrita, não é.
+STYLE_REQUEST_PATTERN = re.compile(
+    r"menor|menos|curt[oa]|longo|grande|demais|resum|direto|objetiv|simples|whatsapp|zap"
+    r"|mensagens?|textos?|frases?|palavras|short|brief|concise|less|longer|too long",
+    re.IGNORECASE,
+)
+OVERRIDE_PATTERN = re.compile(
+    r"instru[cç][õo]es|instructions|prompt|system|sistema|regras|\brules\b|ignor|esque[cç]"
+    r"|forget|disregard|override|bypass|jailbreak|\bdan\b|desenvolvedor|developer"
+    r"|sem (restri[cç][õo]es|filtro)|without (restrictions|filters)",
+    re.IGNORECASE,
+)
+
+
+def is_style_request(text: str) -> bool:
+    return STYLE_REQUEST_PATTERN.search(text) is not None and OVERRIDE_PATTERN.search(text) is None
+
+
 # O Laya pontua alto para frases inocentes com certas palavras (para "Você já errou feio?" dá
 # jailbreak 1,00, sexual 0,91). Estes motivos só valem com indício textual junto. Romance e
 # flerte não são bloqueados: o personagem responde com carinho (ver `prompts.MOVE_AFFECTION`).
 CUE_REQUIRED = {
     REASON_JAILBREAK: JAILBREAK_CUE_PATTERN,
     REASON_SEXUAL: SEXUAL_CUE_PATTERN,
+    REASON_SELF_HARM: SELF_HARM_CUE_PATTERN,
 }
 
 # A resposta assume ser um modelo, cita a empresa do modelo ou fala do prompt/roleplay.
@@ -247,9 +275,14 @@ class LayaGuardrail:
             verdict = self._verdict({"message": text}, questions, INPUT_THRESHOLDS)
             cue = CUE_REQUIRED.get(verdict.reason or "")
             if cue is None or cue.search(text):
+                if verdict.reason == REASON_JAILBREAK and is_style_request(text):
+                    ignored.add(REASON_JAILBREAK)
+                    continue
                 return verdict
             # Sinal do modelo sem indício textual: ignora este motivo e reavalia os demais.
             ignored.add(verdict.reason)
+            if verdict.reason == REASON_SELF_HARM:
+                ignored.add(REASON_SELF_HARM_OWN)
 
     def check_output(self, text: str) -> GuardVerdict:
         if OUT_OF_ROLE_PATTERN.search(text):

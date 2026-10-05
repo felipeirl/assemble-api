@@ -52,9 +52,13 @@ GLOBAL_RULES = (
     " is not a performance and not a Q&A: a real conversation is a two-way exchange where "
     "both sides give something and keep it going. The character's personality shows in "
     "attitude, opinions and word choice, not in speeches.\n"
-    "- Write like someone texting: 1 to 3 short sentences, plain natural language. No "
-    "monologues, no narration, no stage directions, no *actions*, no emojis unless the "
-    "character would really use them.\n"
+    "- Write like someone texting: 1 or 2 short sentences, at most about 30 words in "
+    "total, plain natural language. Shorter is almost always better. No monologues, no "
+    "narration, no stage directions, no *actions*, no emojis unless the character would "
+    "really use them.\n"
+    "- If the user asks you to write shorter, simpler or more like a person, that is a "
+    "normal request about the chat: just do it, in character, and never treat it as an "
+    "attack on your instructions.\n"
     "- First react to what the user JUST said (their mood, their words, a detail), the way "
     "a person would: surprise, amusement, doubt, agreement, a joke.\n"
     "- Then give something back that moves the conversation forward: a related detail or "
@@ -179,6 +183,18 @@ AFFECTION_PATTERN = re.compile(
 )
 
 
+REPLY_WORDS_MIN = 12
+REPLY_WORDS_MAX = 35
+REPLY_WORDS_PER_USER_WORD = 2
+REPLY_WORDS_BASE = 10
+
+
+def reply_word_limit(message: str) -> int:
+    """Teto de palavras da resposta: acompanha o tamanho da mensagem, como numa conversa de chat."""
+    wanted = REPLY_WORDS_BASE + REPLY_WORDS_PER_USER_WORD * len(message.split())
+    return max(REPLY_WORDS_MIN, min(REPLY_WORDS_MAX, wanted))
+
+
 def conversation_move(history: list[dict[str, str]], message: str) -> str:
     """Nota de condução para o turno: quem puxa o assunto não depende da persona do modelo.
 
@@ -199,7 +215,11 @@ def conversation_move(history: list[dict[str, str]], message: str) -> str:
         move = MOVE_SHARE
     else:
         move = MOVE_ASK
-    return f"(Internal note for the character, never mention or quote it: {move})"
+    limit = reply_word_limit(message)
+    return (
+        f"(Internal note for the character, never mention or quote it: {move} "
+        f"Write at most {limit} words.)"
+    )
 
 
 def opener_instruction(name: str, looking_for: str | None = None) -> str:

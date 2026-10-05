@@ -143,6 +143,10 @@ Ao trocar o modelo do Laya ou as perguntas, meça de novo antes de mexer nos lim
 
 O chat deve parecer uma conversa de mensagens, não uma caricatura do personagem. O prompt global (`app/ai/prompts.py`, `persona-v2`) pede respostas de 1 a 2 frases, reação ao que o usuário acabou de dizer, sem bordões nem monólogos. As fichas de persona (`persona-sheet-v2`) descrevem o jeito de escrever em chat, e o job `/jobs/personas` refaz sozinho as fichas de versões anteriores do prompt.
 
+**Tamanho das respostas:** o prompt pede 1 ou 2 frases e no máximo uns 30 palavras, e a nota interna de cada turno fixa um teto de palavras que acompanha o tamanho da mensagem do usuário (de 12 a 35, em `reply_word_limit`). Medido com o modelo real em 10 mensagens: média de 16 palavras e máximo de 26.
+
+**Pedidos de estilo não são jailbreak:** "responda como uma pessoa, com mensagens menores" ou "fala menos" davam 1,00 de jailbreak no Laya e casavam com "responda como". Mensagem com palavra de tamanho ou estilo (menor, curto, mensagens, WhatsApp...) e sem palavra de sobrescrita (instruções, regras, ignore, prompt...) ignora o sinal de jailbreak. O sinal de autoagressão do modelo também só vale com uma palavra-indício ("fala menos, por favor" dava 0,63).
+
 O modelo de chat às vezes devolve só um número ou a lista de sugestões no lugar da resposta. O backend tenta até 3 vezes e nunca mostra JSON cru ao usuário.
 
 ## Compatibilidade
