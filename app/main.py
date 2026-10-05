@@ -1,10 +1,12 @@
 import logging
 import threading
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
+from app.access_log import route_label
 from app.api import account, conversations, deck, jobs
 from app.config import get_settings
 from app.container import Container, build_container
@@ -33,6 +35,19 @@ def create_app(container_factory: Callable[[], Container] | None = None) -> Fast
 
     app = FastAPI(title="Assemble Backend", lifespan=lifespan)
     install_error_handlers(app)
+
+    @app.middleware("http")
+    async def log_request_time(request: Request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        logging.getLogger("app.timing").info(
+            "tempo requisicao %s -> %d: %d ms",
+            route_label(request),
+            response.status_code,
+            (time.perf_counter() - start) * 1000,
+        )
+        return response
+
     app.include_router(deck.router)
     app.include_router(conversations.router)
     app.include_router(account.router)

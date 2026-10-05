@@ -11,6 +11,7 @@ from app.ai.guardrail import REASON_SELF_HARM, Guardrail
 from app.ai.llm import InvalidModelOutputError, LlmClient, parse_json_object
 from app.catalog.names import display_name
 from app.catalog.text import truncate
+from app.timing import timed
 
 CHAT_MAX_TOKENS = 250
 CHAT_TEMPERATURE = 0.8
@@ -71,7 +72,8 @@ class ChatEngine:
     def respond(self, request: ChatRequest) -> ChatResult:
         """Levanta BlockedInputError, LlmUnavailableError ou GuardrailUnavailableError."""
         if request.mode == "reply":
-            verdict = self._guardrail.check_input(request.message)
+            with timed("filtro de entrada"):
+                verdict = self._guardrail.check_input(request.message)
             if verdict.blocked and verdict.reason == REASON_SELF_HARM:
                 return self._fixed(request, prompts.SELF_HARM_REPLY, REASON_SELF_HARM)
             if verdict.blocked:
@@ -79,7 +81,8 @@ class ChatEngine:
 
         response, reply, suggestions = self._generate(request)
 
-        output = self._guardrail.check_output(reply)
+        with timed("filtro de saida"):
+            output = self._guardrail.check_output(reply)
         if output.blocked:
             return self._fixed(request, prompts.SAFE_REPLY, output.reason, model=response.model)
         if len(suggestions) != prompts.SUGGESTION_COUNT:
@@ -96,14 +99,15 @@ class ChatEngine:
     def _generate(self, request: ChatRequest) -> tuple[Any, str, list[str]]:
         """Chama o modelo; uma resposta sem texto (formato errado) é pedida de novo uma vez."""
         for attempt in range(GENERATION_ATTEMPTS):
-            response = self._llm.complete(
-                self._models,
-                self._messages(request),
-                zdr=True,
-                json_mode=True,
-                max_tokens=CHAT_MAX_TOKENS,
-                temperature=CHAT_TEMPERATURE,
-            )
+            with timed(f"modelo (tentativa {attempt + 1})"):
+                response = self._llm.complete(
+                    self._models,
+                    self._messages(request),
+                    zdr=True,
+                    json_mode=True,
+                    max_tokens=CHAT_MAX_TOKENS,
+                    temperature=CHAT_TEMPERATURE,
+                )
             reply, suggestions = parse_reply(response.content)
             if reply:
                 return response, reply, suggestions

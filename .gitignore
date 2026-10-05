@@ -33,3 +33,7 @@ Thumbs.db
 node_modules/
 firebase-debug.log
 firestore-debug.log
+
+# Logs do servidor local
+server.log
+server.out.log

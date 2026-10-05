@@ -22,6 +22,7 @@ from app.repositories import (
     PersonaRepository,
 )
 from app.store.base import DELETE_FIELD, Increment
+from app.timing import timed
 
 STATUS_SENT = "sent"
 STATUS_BLOCKED = "blocked"
@@ -74,7 +75,7 @@ class ConversationService:
             character=character_context(character_id, character, locale),
             persona=self._personas.get(character_id) or {},
         )
-        with provider_errors_as_api_errors():
+        with provider_errors_as_api_errors(), timed("fala de abertura (total)"):
             return self._engine().respond(request)
 
     def save_opener(self, uid: str, character_id: str, result: ChatResult) -> dict[str, Any]:
@@ -120,12 +121,13 @@ class ConversationService:
             message=text,
         )
         try:
-            with provider_errors_as_api_errors():
+            with provider_errors_as_api_errors(), timed("resposta do chat (total)"):
                 result = self._engine().respond(request)
         except BlockedInputError as exc:
             self._save_blocked_input(uid, connection_id, exc.reason, user_at, idempotency_key)
             raise ApiError("blocked_content") from exc
-        return self._save_exchange(uid, connection_id, text, result, user_at, idempotency_key)
+        with timed("gravacao da troca"):
+            return self._save_exchange(uid, connection_id, text, result, user_at, idempotency_key)
 
     def regenerate(self, uid: str, connection_id: str, locale: str) -> RegeneratedReply:
         """Gera outra resposta no lugar da última do personagem (mesma mensagem, texto novo)."""

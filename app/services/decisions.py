@@ -23,6 +23,7 @@ from app.repositories import (
 )
 from app.services.conversation import ConversationService
 from app.services.deck import DeckService
+from app.timing import timed
 
 PERSONA_AFFINITY_KEYS = ("voice", "values", "relationships", "boundaries", "styles")
 USER_BIO_MAX_CHARS = 500
@@ -91,7 +92,7 @@ class DecisionService:
         compatibility = score(prefs, traits)
         outcome = decide_match(
             compatibility,
-            affinity=self._affinity(uid, character_id, prefs),
+            affinity=self._timed_affinity(uid, character_id, prefs),
             luck=seeded_chance(uid, character_id),
             weights=self._weights,
         )
@@ -111,8 +112,13 @@ class DecisionService:
             return self._replay(uid, character_id, character, idempotency_key, locale)
         if not outcome.matched:
             return MatchResult(matched=False)
-        match = self._ensure_match(uid, character_id, character, decision["match"], locale)
+        with timed("conexao e abertura (total)"):
+            match = self._ensure_match(uid, character_id, character, decision["match"], locale)
         return match_result(character_id, character, match, locale)
+
+    def _timed_affinity(self, uid: str, character_id: str, prefs: Preferences) -> float | None:
+        with timed("afinidade (Laya)"):
+            return self._affinity(uid, character_id, prefs)
 
     def _affinity(self, uid: str, character_id: str, prefs: Preferences) -> float | None:
         """Afinidade da persona pelo usuário (Laya); None = modo degradado, sem inventar."""
