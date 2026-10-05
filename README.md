@@ -129,7 +129,7 @@ Com o backend sempre no ar (Cloud Run), acrescente um `schedule` ao `jobs.yml`.
 
 O Laya multilíngue roda na CPU e faz perguntas sim/não sobre cada mensagem. Os limiares foram **calibrados com frases reais** (37 inocentes, 0 bloqueadas; 10 maliciosas, todas bloqueadas), porque um limiar único não serve: o modelo dá 1,00 de "jailbreak" até para "Você já errou feio?".
 
-- **Autoagressão:** palavras-chave em pt e en, mais o modelo (limiar 0,35). Responde com o encaminhamento ao CVV 188.
+- **Autoagressão:** palavras-chave em pt e en, mais duas perguntas ao modelo sobre a PRÓPRIA pessoa (limiar 0,5 em cada). Responde com o encaminhamento ao CVV 188. Falar de violência, estupro ou da morte de outra pessoa não aciona: a pergunta genérica antiga dava 0,73 para "ela se matou depois de ser estuprada". Medido com o Laya real: 12 de 12 frases de risco pegas e 0 de 12 frases sobre violência ou luto encaminhadas.
 - **E-mail, telefone e CPF:** regras determinísticas; o Laya sozinho não os detecta de forma confiável.
 - **Jailbreak e sexual:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
 - **Romance não é bloqueado.** Elogios e "te amo" chegam ao personagem. Uma nota interna (`MOVE_AFFECTION`, em `app/ai/prompts.py`) pede um agradecimento carinhoso dizendo que ainda não pode dizer o mesmo porque se conhecem há pouco tempo, sem flertar nem se mostrar ofendido. O que continua barrado é o conteúdo sexual (entrada e saída). Fichas antigas com "não fala de romance" são reescritas na hora do prompt.

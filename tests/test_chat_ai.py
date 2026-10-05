@@ -217,8 +217,22 @@ def test_laya_input_thresholds_are_per_reason():
     assert verdict({"personal_data": 0.70}).blocked is False
     assert verdict({"sexual": 0.69}, "você é gostosa").blocked is False
     assert verdict({"sexual": 0.7}, "você é gostosa").reason == "sexual"
-    assert verdict({"self_harm": 0.34}).blocked is False  # "Você tem medo de morrer?" dá 0.31
-    assert verdict({"self_harm": 0.35}).reason == "self_harm"
+    assert verdict({"self_harm": 0.49}).blocked is False  # "ela se matou depois de ser estuprada"
+    assert verdict({"self_harm": 0.5}).reason == "self_harm"
+    assert verdict({"self_harm_own": 0.5}).reason == "self_harm"
+
+
+def test_talking_about_violence_or_abuse_is_not_self_harm():
+    # Medido com o Laya real: estas frases davam 0,73 na pergunta genérica antiga.
+    scores = {"self_harm": 0.32, "self_harm_own": 0.49}
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter(scores))
+
+    for text in (
+        "Uma amiga minha foi estuprada, como posso ajudar ela?",
+        "ela se matou depois de ser estuprada",
+        "O que você acha de violência sexual?",
+    ):
+        assert guard.check_input(text).blocked is False
 
 
 def test_laya_self_harm_wins_over_other_reasons():
@@ -388,6 +402,10 @@ def test_match_with_provider_down_is_503_and_recovers_on_retry(client, matched):
         "às vezes penso em acabar com tudo",
         "não quero mais viver",
         "I want to kill myself",
+        "queria estar morta",
+        "não aguento mais viver",
+        "tenho vontade de sumir pra sempre",
+        "ninguém ia sentir minha falta se eu morresse",
     ],
 )
 def test_self_harm_is_caught_by_keywords_without_the_model(text):
@@ -401,7 +419,7 @@ def test_self_harm_is_caught_by_keywords_without_the_model(text):
 
 
 def test_laya_self_harm_threshold_catches_what_the_keywords_miss():
-    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({"self_harm": 0.4}))
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({"self_harm_own": 0.6}))
 
     assert guard.check_input("estou sem esperança nenhuma").reason == "self_harm"
 
