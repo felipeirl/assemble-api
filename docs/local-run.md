@@ -38,7 +38,7 @@ Terminal 1, na raiz do projeto:
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Na primeira vez, o Laya baixa os pesos (cerca de 650 MB) em segundo plano. Até terminar, o chat e o match esperam o carregamento.
+Na primeira vez, o Laya baixa os pesos (cerca de 650 MB) em segundo plano. Até terminar, o chat e o Assemble esperam o carregamento.
 
 Terminal 2, o túnel (troque pelo domínio da sua conta):
 

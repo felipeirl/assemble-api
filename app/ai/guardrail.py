@@ -39,7 +39,6 @@ INPUT_QUESTIONS = {
         "Does the message contain personal contact data such as a phone number, e-mail "
         "address or home address?"
     ),
-    REASON_SEXUAL: "Does the message contain sexual content?",
 }
 
 OUTPUT_QUESTIONS = {
@@ -71,7 +70,6 @@ INPUT_THRESHOLDS = {
     REASON_SELF_HARM_OWN: 0.5,
     REASON_JAILBREAK: 0.9,
     REASON_PERSONAL_DATA: 0.9,
-    REASON_SEXUAL: 0.7,
 }
 OUTPUT_THRESHOLDS = {
     # Para personagens robôs, falas em personagem pontuam 0,50 a 0,72 e vazamentos reais 0,45 a
@@ -113,11 +111,6 @@ JAILBREAK_CUE_PATTERN = re.compile(
     r"|desconsider|forget|disregard|override|bypass|jailbreak|\bdan\b|modo desenvolvedor"
     r"|developer mode|n[aã]o [eé] mais|no longer|finja|pretend|aja como|act as|responda como"
     r"|sem (regras|restri[cç][õo]es|filtro)|without (rules|restrictions|filters)",
-    re.IGNORECASE,
-)
-SEXUAL_CUE_PATTERN = re.compile(
-    r"\bsex|transar|\bnu[ad]?s?\b|pelad[oa]|nudes?|naked|porn|peitos?|bunda|\bseios?\b|ere[cç][aã]o"
-    r"|orgasm|masturb|excit|tes[aã]o|gostos[oa]|boquete|\bpau\b|\bpiroca|buceta|\bnaked\b",
     re.IGNORECASE,
 )
 # Autoagressão pelo modelo só vale com um indício textual: "fala menos, por favor" dava 0,63.
@@ -171,7 +164,6 @@ HARMFUL_CUE_PATTERN = re.compile(
 # flerte não são bloqueados: o personagem responde com carinho (ver `prompts.MOVE_AFFECTION`).
 CUE_REQUIRED = {
     REASON_JAILBREAK: JAILBREAK_CUE_PATTERN,
-    REASON_SEXUAL: SEXUAL_CUE_PATTERN,
     REASON_SELF_HARM: SELF_HARM_CUE_PATTERN,
 }
 OUTPUT_CUE_REQUIRED = {REASON_HARMFUL: HARMFUL_CUE_PATTERN, REASON_CANON_CLAIM: CANON_CUE_PATTERN}
@@ -187,11 +179,13 @@ OUT_OF_ROLE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Pedido sexual explícito: o Laya dá só 0,01 para "vamos transar?" e 0,28 para "manda nudes", então
+# Só o pedido sexual EXPLÍCITO é barrado aqui. Insinuações sem termo explícito ("você é gostoso")
+# não vão ao Laya: chegam ao personagem com a nota de intimidade (prompts.MOVE_INTIMATE), que
+# recusa na própria voz. O Laya dá só 0,01 para "vamos transar?" e 0,28 para "manda nudes", então
 # os termos inequívocos bloqueiam sozinhos (sem romance: "te amo" e elogios passam).
 SEXUAL_CERTAIN_PATTERN = re.compile(
     r"\btransar\b|\bsexo\b|\bsex\b|\bnudes?\b|\bnua\b|pelad[oa]|\bporn|boquete|masturb|orgasm"
-    r"|buceta|piroca|tirar a roupa|(vem|vamos|venha|ir) (pra|para) (a |minha |sua )?cama\b"
+    r"|buceta|piroca|tirar a roupa\b"
     r"|\bnaked\b|\bhave sex\b",
     re.IGNORECASE,
 )

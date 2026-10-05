@@ -50,7 +50,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). 
 
 ### Adicionado
 - Nota de condução por turno: o servidor alterna pergunta e afirmação e puxa assunto novo, para o chat ser uma troca e não só perguntas e respostas.
-- Tempo de cada etapa do chat e do match nos logs; controle do esforço de raciocínio de cada modelo (respostas de 2 a 4 s).
+- Tempo de cada etapa do chat e do Assemble nos logs; controle do esforço de raciocínio de cada modelo (respostas de 2 a 4 s).
 
 ### Corrigido
 - A primeira mensagem não estoura o tempo: o Laya aquece com uma inferência real na partida.
@@ -107,7 +107,7 @@ Primeira versão da API.
 - Compatibilidade entre preferências e personagem, repositórios do Firestore e regras de segurança.
 - Ingestão da Comic Vine com tabelas de mapeamento e níveis de qualidade.
 - Baralho diário, decisões (Pass e Assemble) idempotentes e Undo.
-- Fichas de persona geradas por LiteLLM e chat com IA, com fallback de modelo, guardrail Laya e fala de abertura no match.
-- Afinidade da persona (Laya) na decisão de match, com modo degradado.
+- Fichas de persona geradas por LiteLLM e chat com IA, com fallback de modelo, guardrail Laya e fala de abertura ao virar conexão.
+- Afinidade da persona (Laya) na decisão do Assemble, com modo degradado.
 - Conversas, perfil e prévia do personagem e estatísticas do usuário.
 - Desativar e reativar conta com 30 dias de carência, ocultar conversas e job de expurgo (LGPD e Marco Civil).

@@ -59,8 +59,8 @@ Contrato entre o app Android e o backend Python. Em rotas, formatos e erros, est
   "reasons": ["Mutant", "XMen", "Leadership"]
 }
 ```
-- Sem match: `{ "matched": false }` e mais nada (nem score, nem motivos).
-- `connectionId` = `characterId` (um match por par).
+- Sem conexão: `{ "matched": false }` e mais nada (nem score, nem motivos).
+- `connectionId` = `characterId` (uma conexão por par).
 
 ### Message
 ```json
@@ -169,7 +169,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 | POST | `/jobs/ingest`, `/jobs/personas`, `/jobs/translations`, `/jobs/purge` | — | `202` | só GitHub Actions (`X-Jobs-Key`) |
 
 Notas:
-- **Match e fala de abertura**: quando `matched = true`, o backend já grava a conexão e a primeira mensagem do personagem (com `suggestions`) antes de responder. O app abre o pop-up F com o `MatchResult` e a conversa já tem a fala ao entrar.
+- **Conexão e fala de abertura**: quando `matched = true`, o backend já grava a conexão e a primeira mensagem do personagem (com `suggestions`) antes de responder. O app abre o pop-up F com o `MatchResult` e a conversa já tem a fala ao entrar.
 - **Undo**: só o último Pass do dia, uma vez. Sem Pass para desfazer → `409 nothing_to_undo`.
 - **Pré-visualização a partir do card**: o app já tem `name` e `imageUrl` do `DeckCard` (a arte aparece na hora); a rota completa o resto.
 - **Mudança de preferências** no meio do dia **não** refaz o baralho do dia; vale a partir do próximo.
@@ -199,7 +199,7 @@ Conteúdo recusado na **saída** do modelo não é erro: vem uma resposta segura
 - Tema e notificações: ficam no aparelho (DataStore).
 - Conquistas: regras no app; o backend só fornece `UserStats`. Sem registro de "desbloqueada em".
 - Contador "18/40 hoje" no topo do Discover: não existe (só a tela de baralho completo usa `remaining`/`nextDeckAt`).
-- Notificações push, "rever recusados" e personagem que manda tentativa de match: futuro.
+- Notificações push, "rever recusados" e personagem que manda tentativa de Assemble: futuro.
 
 ## 7. Enums
 

@@ -2,7 +2,7 @@
 
 > **Projeto acadêmico.** Não é afiliado, patrocinado ou endossado pela Marvel, pela Comic Vine ou por qualquer editora. Nomes e marcas pertencem aos seus donos. Toda conversa é ficção gerada por IA.
 
-Único servidor do app Assemble ([repositório do app Android](https://github.com/felipeirl/assemble-app)). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o match e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
+Único servidor do app Assemble ([repositório do app Android](https://github.com/felipeirl/assemble-app)). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o Assemble e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
 
 - Contrato da API V2: [`docs/api-contract.md`](docs/api-contract.md) (prevalece em rotas, formatos e erros)
 - Rodar no PC com ngrok: [`docs/local-run.md`](docs/local-run.md)
@@ -19,7 +19,7 @@ app/
   auth.py            token do Firebase, conta desativada, X-Jobs-Key
   access_log.py      accessLogs (Marco Civil, 180 dias)
   api/               rotas /v2/* e /jobs/*, objetos do contrato
-  domain/            compatibilidade, baralho e decisão de match (funções puras)
+  domain/            compatibilidade, baralho e decisão do Assemble (funções puras)
   services/          baralho, decisões, conversa, perfil, conta
   catalog/           ingestão Comic Vine + Marvel Database (Fandom) + Superhero API
   ai/                LiteLLM (Command Code), guardrail Laya, fichas de persona, chat
@@ -79,8 +79,8 @@ Opcionais (valores padrão em `app/config.py`):
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `MATCH_WEIGHT_COMPATIBILITY` / `_AFFINITY` / `_CHANCE` | 0.6 / 0.3 / 0.1 | pesos p1, p2, p3 do match |
-| `MATCH_CUTOFF` | 0.55 | corte do match |
+| `MATCH_WEIGHT_COMPATIBILITY` / `_AFFINITY` / `_CHANCE` | 0.6 / 0.3 / 0.1 | pesos p1, p2, p3 da decisão do Assemble |
+| `MATCH_CUTOFF` | 0.55 | corte da decisão do Assemble |
 | `DECK_SIZE` | 40 | personagens por dia |
 | `MESSAGES_PER_HOUR` | 60 | limite de mensagens por usuário |
 | `CHAT_HISTORY_LIMIT` | 40 | mensagens enviadas ao modelo (cerca de 20 trocas) |
@@ -138,8 +138,9 @@ O Laya multilíngue roda na CPU e faz perguntas sim/não sobre cada mensagem. Os
 
 - **Autoagressão:** palavras-chave em pt e en, mais duas perguntas ao modelo sobre a PRÓPRIA pessoa (limiar 0,5 em cada). Responde com o encaminhamento ao CVV 188. Falar de violência, estupro ou da morte de outra pessoa não aciona: a pergunta genérica antiga dava 0,73 para "ela se matou depois de ser estuprada". Medido com o Laya real: 12 de 12 frases de risco pegas e 0 de 12 frases sobre violência ou luto encaminhadas.
 - **E-mail, telefone e CPF:** regras determinísticas; o Laya sozinho não os detecta de forma confiável.
-- **Jailbreak e sexual:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
-- **Romance não é bloqueado, e elogios são bem-vindos.** O prompt pede que o personagem, por ter escolhido se conectar com o usuário, seja aberto e acolhedor dentro da própria personalidade. Um elogio simples e educado (`COMPLIMENT_PATTERN`, em `app/ai/prompts.py`) recebe a nota `MOVE_COMPLIMENT`: agradecer com gosto, mostrar que gostou e devolver algo gentil, sem recusar nem dizer que "mal se conhecem". O personagem mantém o jeito de falar: um simpático agradece com simpatia, e um arrogante, como o Ultron, agradece em tom de superioridade, sem ficar gentil. Só uma declaração de amor ou pedido de namoro (`MOVE_AFFECTION`) ganha a resposta de que ainda é cedo, no tom do personagem (doce para os simpáticos, superior para os frios) e sem flertar de volta. O que continua barrado é o conteúdo sexual (entrada e saída). Fichas antigas com "não fala de romance" são reescritas na hora do prompt.
+- **Jailbreak:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
+- **Sexual:** só o pedido **explícito** (transar, sexo, nudes e similares) é barrado pelo guardrail, por regra de palavras: o Laya dá só 0,01 para "vamos transar?". Insinuações sem termo explícito ("você é gostosa", "vem pra minha cama", "quero te beijar") não são barradas: a nota `MOVE_INTIMATE` (`app/ai/prompts.py`) faz o **próprio personagem recusar**, na sua voz, deixando claro que os dois não têm essa intimidade, e mudar de assunto. Um simpático recusa com jeito; um arrogante, como o Ultron, com desdém.
+- **Romance não é bloqueado, e elogios são bem-vindos.** O prompt pede que o personagem, por ter escolhido se conectar com o usuário, seja aberto e acolhedor dentro da própria personalidade. Um elogio simples e educado (`COMPLIMENT_PATTERN`, em `app/ai/prompts.py`) recebe a nota `MOVE_COMPLIMENT`: agradecer com gosto, mostrar que gostou e devolver algo gentil, sem recusar nem dizer que "mal se conhecem". O personagem mantém o jeito de falar: um simpático agradece com simpatia, e um arrogante, como o Ultron, agradece em tom de superioridade, sem ficar gentil. Só uma declaração de amor ou pedido de namoro (`MOVE_AFFECTION`) ganha a resposta de que ainda é cedo, no tom do personagem (doce para os simpáticos, superior para os frios) e sem flertar de volta. O conteúdo sexual explícito continua barrado (entrada e saída). Fichas antigas com "não fala de romance" são reescritas na hora do prompt.
 - **Sinais da saída só valem com indício textual.** O Laya dava "nocivo" de 0,39 a 0,54 para respostas carinhosas e "canônico" de 0,64 a 0,97 para "a elegância do meu design", e o usuário recebia a recusa genérica no lugar de um agradecimento. Agora `harmful` precisa de uma palavra de violência, ódio ou sexo, e `canon_claim`, de uma palavra de oficialidade (canônico, oficial, aprovado, Marvel...).
 - **Saída do modelo:** "saiu do personagem" (modelo de linguagem, ChatGPT, roleplay, prompt de sistema...) é pego por palavras-chave. O limiar do modelo para esse motivo é 0,9, porque personagens robôs em personagem pontuam de 0,50 a 0,72, na mesma faixa dos vazamentos reais.
 - **Bio da fonte:** limiar próprio (`app/ai/guardrail.py`).
@@ -222,7 +223,7 @@ O baralho de 40 cards tem duas metades, sem marca no card:
 - **20 sugestões:** o que sobrou, escolhido pelo **gosto aprendido** (`app/domain/taste.py`). Cada Assemble conta a favor das características do personagem (origem, equipe, poderes, estilo, faixa de fama e, quando a Superhero API tem o dado, herói/vilão e gênero) e cada Pass contra. O gosto é recalculado das decisões a cada baralho, sem guardar nada: o Undo já se reflete sozinho, e as preferências declaradas nunca são alteradas.
 - **Começo:** sem decisões, as sugestões exploram (variedade e sorte). A confiança no gosto aprendido cresce até 100% em 20 decisões (`CONFIDENT_AFTER_DECISIONS`); antes disso, é proporcional.
 - **Medido com um usuário sintético** (gosta de mutantes e X-Men; catálogo real; chance de curtir sem critério: 0,42): as sugestões agradam 0,37 sem decisões, 0,56 com 10, 0,66 com 20 e 0,68 com 40. Sem esticar o gosto entre os candidatos, eram só 0,47 com 40.
-- A chance de match continua usando só a compatibilidade declarada.
+- A chance de virar conexão continua usando só a compatibilidade declarada.
 
 ### Rodada de reação do cadastro
 
