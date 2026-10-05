@@ -1,6 +1,11 @@
-"""Baralho diário (seção 8): até 40 por dia, sem reposição, Undo do último Pass."""
+"""Baralho (seção 8): até 40 decisões por dia, sem reposição, Undo do último Pass.
+
+O baralho é sorteado de novo a cada chamada: abrir o app gira os personagens que ainda não foram
+decididos. A cota do dia é fixa; o que muda é quais personagens aparecem.
+"""
 
 import random
+from collections.abc import Callable
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -29,6 +34,7 @@ class DeckService:
         decks: DeckRepository,
         clock: Clock,
         deck_size: int,
+        rng_factory: Callable[[], random.Random] = random.Random,
     ) -> None:
         self._catalog = catalog
         self._users = users
@@ -36,18 +42,18 @@ class DeckService:
         self._decks = decks
         self._clock = clock
         self._deck_size = deck_size
+        self._rng_factory = rng_factory
 
     def today(self, tz: ZoneInfo) -> str:
         return deck_rules.local_date(self._clock.now(), tz).isoformat()
 
     def ensure_deck(self, uid: str, tz: ZoneInfo) -> tuple[str, dict[str, Any]]:
-        """Baralho do dia; gerado e gravado na primeira chamada."""
+        """Documento do dia (Undo e metadados); criado na primeira chamada, sem os cards."""
         date = self.today(tz)
         existing = self._decks.get(uid, date)
         if existing is not None:
             return date, existing
         deck = {
-            "characterIds": self._select(uid, date),
             "generatedAt": self._clock.now(),
             "algorithmVersion": deck_rules.ALGORITHM_VERSION,
         }
@@ -59,19 +65,21 @@ class DeckService:
         date, deck = self.ensure_deck(uid, tz)
         prefs = self._users.preferences(uid)
         decided = self._decisions.decided_ids(uid)
+        decided_today = self._decisions.count_on_date(uid, date)
+        pool = self._candidates(prefs, decided)
+        rng = self._rng_factory()
+        chosen = deck_rules.select_deck(pool, max(0, self._deck_size - decided_today), rng)
+        rng.shuffle(chosen)
         cards = []
-        for character_id in deck["characterIds"]:
-            if character_id in decided:
-                continue
+        for character_id in chosen:
             doc = self._catalog.get(character_id)
             if doc is not None:
                 cards.append(build_card(character_id, doc, prefs, locale))
-        random.shuffle(cards)
         return Deck(
             date=date,
             cards=cards,
             remaining=len(cards),
-            total=len(deck["characterIds"]),
+            total=min(self._deck_size, decided_today + len(pool)),
             nextDeckAt=deck_rules.next_deck_at(self._clock.now(), tz),
             canUndo=self._undo_target(uid, date, deck) is not None,
         )
@@ -102,11 +110,10 @@ class DeckService:
             return None
         return character_id
 
-    def _select(self, uid: str, date: str) -> list[str]:
-        prefs = self._users.preferences(uid)
-        decided = self._decisions.decided_ids(uid)
+    def _candidates(self, prefs: Preferences, decided: set[str]) -> list[deck_rules.Candidate]:
+        """Personagens elegíveis que o usuário ainda não decidiu, com a nota de cada um."""
         now = self._clock.now()
-        candidates = [
+        return [
             deck_rules.Candidate(
                 character_id=character_id,
                 score=score(prefs, CharacterTraits.model_validate(doc)),
@@ -117,8 +124,6 @@ class DeckService:
             for character_id, doc in self._catalog.eligible().items()
             if character_id not in decided
         ]
-        rng = random.Random(f"{uid}:{date}")
-        return deck_rules.select_deck(candidates, self._deck_size, rng)
 
 
 def build_card(character_id: str, doc: dict[str, Any], prefs: Preferences, locale: str) -> DeckCard:

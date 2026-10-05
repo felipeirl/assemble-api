@@ -172,6 +172,13 @@ O provedor rejeita com 400 um esforço que o modelo não aceita; por isso o valo
 - `POST /v2/connections/{id}/messages/rewind` com `{"messageId": "..."}`: apaga tudo o que veio depois de uma resposta do personagem (a abertura vale) e responde `204`. Refaz `lastMessagePreview`, `userMessageCount` e as sugestões. Mensagem de usuário como alvo dá `400`, e id desconhecido dá `404`.
 - Editar a mensagem do usuário ficou para depois: deixaria a resposta seguinte órfã.
 
+## Baralho
+
+- **Cota do dia:** `DECK_SIZE` (40) decisões por dia, contadas por `deckDate` nas decisões. Quem recebeu Pass ou Assemble não volta; Undo desfaz só o último Pass.
+- **Sorteio a cada abertura:** `GET /v2/deck` sorteia de novo entre os personagens que o usuário ainda não decidiu. Fechar e abrir o app gira os personagens, e o baralho de cada pessoa sai diferente. O documento `decks/{data}` guarda só o necessário para o Undo, não a lista de cards.
+- **Como sorteia** (`app/domain/deck.py`): nota de compatibilidade, bônus de novidade, penalidade de variedade proporcional (a fração do baralho já ocupada pela mesma origem e equipes) e sorte `JITTER` de 0 a 0,6. Medido com duas contas reais: 18 de 40 personagens em comum entre pessoas e 23 de 40 entre duas aberturas da mesma conta, antes eram 28 e 35.
+- A penalidade de variedade antiga somava 0,1 por repetição e passava de 2,0 no meio da seleção; por isso os personagens de origem rara entravam sempre e o baralho era quase igual para todos.
+
 ## Card do baralho
 
 Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quando existe), com até 140 caracteres e sem o título de seção do Comic Vine. Sem bio, o campo não vem.

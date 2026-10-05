@@ -87,6 +87,10 @@ class DecisionRepository:
     def count(self, uid: str) -> int:
         return self._store.count(decisions_path(uid))
 
+    def count_on_date(self, uid: str, date: str) -> int:
+        """Decisões tomadas no dia do baralho (a cota diária descontada)."""
+        return self._store.count(decisions_path(uid), filters=(("deckDate", "==", date),))
+
 
 class MatchRepository:
     def __init__(self, store: DocumentStore) -> None:

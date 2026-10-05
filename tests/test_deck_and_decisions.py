@@ -53,7 +53,7 @@ def test_select_deck_spreads_origins_and_teams():
         Candidate("a1", 80, "Human", ("Avengers",), False),
     ]
 
-    chosen = select_deck(candidates, 2, random.Random(0))
+    chosen = select_deck(candidates, 2, random.Random(0), luck=0.1)  # sem sorte: só a regra
 
     assert chosen == ["x1", "a1"]
 
@@ -64,7 +64,7 @@ def test_select_deck_favors_new_characters():
         Candidate("new", 75, "Alien", (), True),
     ]
 
-    assert select_deck(candidates, 1, random.Random(0))[0] == "new"
+    assert select_deck(candidates, 1, random.Random(0), luck=0.1)[0] == "new"
 
 
 def test_select_deck_respects_size():
@@ -101,19 +101,35 @@ def test_seeded_chance_is_deterministic_per_pair():
 # --- GET /v2/deck --------------------------------------------------------------------------
 
 
-def test_deck_is_generated_once_and_stored(client, seeded):
+def test_deck_day_document_is_stored_and_the_cards_are_drawn(client, seeded):
     first = deck(client)
 
     stored = seeded.store.get(f"users/{UID}/decks/{first['date']}")
-    assert set(stored["characterIds"]) == ELIGIBLE
-    assert stored["algorithmVersion"] == "deck-v1"
+    assert stored["algorithmVersion"] == "deck-v2"
+    assert "characterIds" not in stored  # a lista não é fixa: cada abertura sorteia de novo
     assert first["total"] == 4
     assert first["remaining"] == 4
     assert {c["characterId"] for c in first["cards"]} == ELIGIBLE
 
     seeded.store.set("characters/new-one", {"name": "Novo", "origin": "Alien", "tier": "B"})
     seeded.catalog.invalidate()
-    assert deck(client)["total"] == 4
+    assert deck(client)["total"] == 5  # um personagem novo entra no sorteio
+
+
+def test_every_deck_request_draws_again(client, seeded):
+    import random
+
+    draws = []
+
+    def factory():
+        draws.append(len(draws))
+        return random.Random(len(draws))
+
+    seeded.deck_service._rng_factory = factory
+    deck(client)
+    deck(client)
+
+    assert len(draws) == 2
 
 
 def test_deck_card_has_no_compatibility(client, seeded):
@@ -293,3 +309,21 @@ def test_undo_does_not_reach_previous_day(client, seeded, clock):
     clock.current += timedelta(days=1)
 
     assert client.post("/v2/decisions/undo", headers=HEADERS).status_code == 409
+
+
+def test_select_deck_differs_between_people_with_the_same_scores():
+    candidates = [Candidate(f"c{i}", 55, "Human", (), False) for i in range(40)]
+
+    first = select_deck(candidates, 10, random.Random("user-a:1"))
+    second = select_deck(candidates, 10, random.Random("user-b:1"))
+
+    assert set(first) != set(second)
+
+
+def test_select_deck_always_includes_a_much_better_match():
+    candidates = [Candidate("best", 95, "Human", (), False)] + [
+        Candidate(f"c{i}", 40, f"Origin{i}", (), False) for i in range(30)
+    ]
+
+    for seed in range(50):
+        assert "best" in select_deck(candidates, 5, random.Random(seed))

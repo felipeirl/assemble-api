@@ -1,4 +1,4 @@
-"""Seleção do baralho diário: compatibilidade + variedade + novidade. Funções puras."""
+"""Sorteio do baralho: compatibilidade + variedade + novidade + muita sorte. Funções puras."""
 
 import random
 from collections import Counter
@@ -6,11 +6,17 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-ALGORITHM_VERSION = "deck-v1"
+ALGORITHM_VERSION = "deck-v2"
 NOVELTY_WINDOW = timedelta(days=14)
 NOVELTY_BONUS = 0.15
-VARIETY_PENALTY = 0.1
-JITTER = 0.1
+# Penalidade pela fração do baralho já ocupada pela mesma origem e equipes (cresce de 0 a ~2 vezes
+# este valor). Somada por repetição, ela passava de 2,0 no meio da seleção e fazia os personagens
+# de origem rara entrarem sempre: o baralho saía quase igual para todo mundo.
+VARIETY_PENALTY = 0.4
+# Sorte do sorteio, na mesma escala da nota (0 a 1). Com 0,1 duas contas de gosto parecido recebiam
+# quase os mesmos personagens; com 0,6, quem combina mais ainda tende a entrar, e o resto
+# varia de pessoa para pessoa e de abertura para abertura.
+JITTER = 0.6
 
 
 @dataclass(frozen=True)
@@ -22,9 +28,14 @@ class Candidate:
     is_new: bool
 
 
-def select_deck(candidates: list[Candidate], size: int, rng: random.Random) -> list[str]:
-    """Escolhe até `size` personagens, penalizando origens e equipes já escolhidas."""
-    jitter = {c.character_id: rng.random() * JITTER for c in candidates}
+def select_deck(
+    candidates: list[Candidate], size: int, rng: random.Random, luck: float = JITTER
+) -> list[str]:
+    """Escolhe até `size` personagens, penalizando origens e equipes já escolhidas.
+
+    `luck` é a sorte somada à nota de cada personagem (0 a `luck`).
+    """
+    jitter = {c.character_id: rng.random() * luck for c in candidates}
     origin_counts: Counter[str] = Counter()
     team_counts: Counter[str] = Counter()
     pool = list(candidates)
@@ -34,10 +45,11 @@ def select_deck(candidates: list[Candidate], size: int, rng: random.Random) -> l
         repeats = sum(team_counts[team] for team in candidate.teams)
         if candidate.origin is not None:
             repeats += origin_counts[candidate.origin]
+        repeat_share = repeats / max(1, len(selected))
         total = (
             candidate.score / 100
             + (NOVELTY_BONUS if candidate.is_new else 0.0)
-            - VARIETY_PENALTY * repeats
+            - VARIETY_PENALTY * repeat_share
             + jitter[candidate.character_id]
         )
         return total, candidate.character_id
