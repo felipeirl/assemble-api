@@ -3,6 +3,7 @@
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -204,10 +205,20 @@ class LayaGuardrail:
         self._lock = threading.Lock()
 
     def warm_up(self) -> None:
+        """Carrega o Laya e faz uma pergunta de verdade: os pesos só vêm na primeira inferência.
+
+        Sem isso, a primeira mensagem do usuário paga mais de 2 minutos de carga e o app desiste.
+        """
+        start = time.perf_counter()
         try:
-            self._get_router()
+            self.check_output("Olá, tudo bem?")
         except GuardrailUnavailableError:
             logger.warning("Laya não carregou no aquecimento; nova tentativa na primeira chamada.")
+            return
+        logger.info(
+            "Laya aquecido em %.0f s; o servidor já responde sem demora.",
+            time.perf_counter() - start,
+        )
 
     def check_input(self, text: str) -> GuardVerdict:
         if has_self_harm_signal(text):
