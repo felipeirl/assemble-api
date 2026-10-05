@@ -16,8 +16,34 @@ WEIGHT_FAME = 10
 FAME_ICON_APPEARANCES = 10_000
 FAME_HIDDEN_GEM_APPEARANCES = 100
 
+# "Qualquer" é neutro: metade do peso, para não combinar com todo mundo.
+ANY_FACTOR = 0.5
+# Sem nada em comum e com um traço rival do que o usuário escolheu: perde metade do peso.
+RIVAL_PENALTY = 0.5
+SCORE_MIN = 0
+SCORE_MAX = 100
+
 # Tolerância de ponto flutuante para o arredondamento "meio para cima".
 ROUNDING_EPSILON = 1e-9
+
+# Rivalidades (simétricas). Equipes e origens só com conflito documentado nas HQs:
+# - Avengers x X-Men: "Avengers vs. X-Men" (2012).
+# - Avengers x Defenders: "The Avengers/Defenders War" (1973).
+# - X-Men x S.H.I.E.L.D.: a S.H.I.E.L.D. caça os X-Men de Ciclope (Uncanny X-Men, 2013).
+# - Mutante x Humano: o preconceito anti-mutante, tema central dos X-Men.
+# - Mutante x Robô: os Sentinelas, robôs feitos para caçar mutantes.
+# Estilos: opostos diretos de atitude. Poderes não têm rivalidade.
+RIVALRIES: tuple[tuple[StrEnum, StrEnum], ...] = (
+    (Team.Avengers, Team.XMen),
+    (Team.Avengers, Team.Defenders),
+    (Team.XMen, Team.Shield),
+    (Origin.Mutant, Origin.Human),
+    (Origin.Mutant, Origin.Robot),
+    (Style.Leadership, Style.Loner),
+    (Style.Leadership, Style.Rebel),
+    (Style.Idealist, Style.Dark),
+)
+_RIVALS = {pair for a, b in RIVALRIES for pair in ((a, b), (b, a))}
 
 
 @dataclass(frozen=True)
@@ -42,7 +68,7 @@ def score(prefs: Preferences, character: CharacterTraits) -> int:
         for weight, chosen, owned, _ in _categories(prefs, character)
     )
     total += _fame_points(prefs.fame, character.issueAppearances)
-    return _round_half_up(total)
+    return min(max(_round_half_up(total), SCORE_MIN), SCORE_MAX)
 
 
 def breakdown(prefs: Preferences, character: CharacterTraits) -> list[CategoryMatch]:
@@ -70,12 +96,19 @@ def _categories(prefs: Preferences, character: CharacterTraits):
     ]
 
 
+def are_rivals(a: StrEnum, b: StrEnum) -> bool:
+    return (a, b) in _RIVALS
+
+
 def _set_points(weight: int, chosen: set[StrEnum], owned: set[StrEnum]) -> float:
     if not chosen:
-        return float(weight)
+        return weight * ANY_FACTOR
     if not owned:
         return 0.0
     common = len(chosen & owned)
+    if common == 0:
+        rival = any(are_rivals(mine, theirs) for mine in chosen for theirs in owned)
+        return -weight * RIVAL_PENALTY if rival else 0.0
     return weight * common / min(len(chosen), len(owned))
 
 

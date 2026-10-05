@@ -144,6 +144,16 @@ O chat deve parecer uma conversa de mensagens, não uma caricatura do personagem
 
 O modelo de chat às vezes devolve só um número ou a lista de sugestões no lugar da resposta. O backend tenta até 3 vezes e nunca mostra JSON cru ao usuário.
 
+## Compatibilidade
+
+Função pura em `app/domain/compatibility.py`, idêntica ao `CompatibilityCalculator` do Android. Pesos: origem 25, poderes 30, equipes 15, estilo 20, fama 10.
+
+- **"Qualquer" é neutro:** a categoria vale metade do peso. Quem deixa tudo em "Qualquer" fica perto de 55, e não casa com todo mundo.
+- **Rivalidades:** sem nada em comum na categoria e com um traço rival do escolhido, a categoria perde metade do peso (nota final entre 0 e 100). Um traço em comum anula a rivalidade.
+- **Pares (simétricos):** Avengers x X-Men ("Avengers vs. X-Men", 2012), Avengers x Defenders ("The Avengers/Defenders War", 1973), X-Men x S.H.I.E.L.D. (Uncanny X-Men, 2013), Mutante x Humano (preconceito anti-mutante), Mutante x Robô (Sentinelas), Liderança x Solitário, Liderança x Rebelde, Idealista x Sombrio. Poderes não têm rivalidade.
+
+Ao mudar a tabela, mude também no Android.
+
 ## Card do baralho
 
 Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quando existe), com até 140 caracteres e sem o título de seção do Comic Vine. Sem bio, o campo não vem.

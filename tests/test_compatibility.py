@@ -1,7 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
-from app.domain.compatibility import breakdown, character_fame, score, traits_in_common
+from app.domain.compatibility import (
+    RIVALRIES,
+    are_rivals,
+    breakdown,
+    character_fame,
+    score,
+    traits_in_common,
+)
 from app.domain.enums import Category, Origin, PowerFamily, Style, Team
 from app.domain.models import CharacterTraits, Preferences
 
@@ -19,11 +26,12 @@ def character(**overrides) -> CharacterTraits:
     return CharacterTraits(**{**base, **overrides})
 
 
-def test_any_everywhere_with_equal_fame_is_100():
-    assert score(Preferences(fame=0.5), character()) == 100
+def test_any_everywhere_is_neutral_not_a_full_match():
+    # Metade de cada peso (12,5 + 15 + 7,5 + 10) + fama igual (10).
+    assert score(Preferences(fame=0.5), character()) == 55
 
 
-def test_nothing_in_common_scores_only_fame():
+def test_rivals_everywhere_floor_at_zero():
     prefs = Preferences(
         origins=[Origin.Mutant],
         powers=[PowerFamily.Mind],
@@ -32,19 +40,22 @@ def test_nothing_in_common_scores_only_fame():
         fame=0.5,
     )
 
-    assert score(prefs, character()) == 10
+    # Mutant x Human (-12,5), X-Men x Avengers (-7,5), Mind e Leadership sem rival (0), fama 10.
+    assert score(prefs, character()) == 0
 
 
 def test_chosen_category_with_empty_character_field_is_zero():
     prefs = Preferences(teams=[Team.XMen], fame=0.5)
 
-    assert score(prefs, character(teams=[])) == 25 + 30 + 20 + 10
+    # 12,5 + 15 + 0 + 10 + 10 = 47,5
+    assert score(prefs, character(teams=[])) == 48
 
 
 def test_chosen_origin_with_unknown_character_origin_is_zero():
     prefs = Preferences(origins=[Origin.Mutant], fame=0.5)
 
-    assert score(prefs, character(origin=None)) == 30 + 15 + 20 + 10
+    # 0 + 15 + 7,5 + 10 + 10 = 42,5
+    assert score(prefs, character(origin=None)) == 43
 
 
 def test_divisor_is_the_smaller_set():
@@ -52,7 +63,8 @@ def test_divisor_is_the_smaller_set():
         powers=[PowerFamily.Mind, PowerFamily.TechGadgets, PowerFamily.Flight], fame=0.5
     )
 
-    assert score(prefs, character(powers=[PowerFamily.Flight])) == 100
+    # 12,5 + 30 + 7,5 + 10 + 10
+    assert score(prefs, character(powers=[PowerFamily.Flight])) == 70
 
 
 def test_partial_overlap_uses_smaller_set_as_divisor():
@@ -60,19 +72,19 @@ def test_partial_overlap_uses_smaller_set_as_divisor():
     owned = [PowerFamily.Mind, PowerFamily.Energy, PowerFamily.Speed]
 
     # 30 × 1/min(2, 3) = 15
-    assert score(prefs, character(powers=owned)) == 25 + 15 + 15 + 20 + 10
+    assert score(prefs, character(powers=owned)) == 12.5 + 15 + 7.5 + 10 + 10
 
 
 def test_rounds_half_up():
-    prefs = Preferences(teams=[Team.Avengers, Team.XMen])
-    owned = character(teams=[Team.Avengers, Team.Guardians], issueAppearances=None)
+    prefs = Preferences(origins=[Origin.Human], powers=[PowerFamily.Strength])
+    owned = character(issueAppearances=None)
 
-    # 25 + 30 + 15 × 1/2 + 20 + 0 = 82.5 → 83 (round() do Python daria 82)
-    assert score(prefs, owned) == 83
+    # 25 + 30 + 7,5 + 10 + 0 = 72,5 → 73 (round() do Python daria 72)
+    assert score(prefs, owned) == 73
 
 
 def test_unknown_appearances_gives_zero_fame_points():
-    assert score(Preferences(fame=0.5), character(issueAppearances=None)) == 90
+    assert score(Preferences(fame=0.5), character(issueAppearances=None)) == 45
 
 
 @pytest.mark.parametrize(
@@ -84,7 +96,7 @@ def test_character_fame_log_scale(appearances, expected):
 
 
 def test_fame_opposite_extremes_give_zero_fame_points():
-    assert score(Preferences(fame=1.0), character(issueAppearances=10_000)) == 90
+    assert score(Preferences(fame=1.0), character(issueAppearances=10_000)) == 45
 
 
 def test_breakdown_lists_common_traits_by_category_in_order():
@@ -140,3 +152,26 @@ def test_unknown_enum_is_rejected():
 def test_fame_out_of_range_is_rejected():
     with pytest.raises(ValidationError):
         Preferences(fame=1.5)
+
+
+def test_rival_trait_without_overlap_loses_half_the_weight():
+    prefs = Preferences(teams=[Team.XMen], fame=0.5)
+    # 12,5 + 15 - 7,5 + 10 + 10 = 40
+    assert score(prefs, character(teams=[Team.Avengers])) == 40
+    # Sem rival (Guardians), a categoria só não pontua: 47,5
+    assert score(prefs, character(teams=[Team.Guardians])) == 48
+
+
+def test_shared_trait_cancels_the_rivalry():
+    prefs = Preferences(teams=[Team.XMen], fame=0.5)
+    # X-Men em comum: 15 × 1/1, sem penalidade pelos Avengers. 62,5
+    assert score(prefs, character(teams=[Team.Avengers, Team.XMen])) == 63
+
+
+def test_rivalries_are_symmetric_and_curated():
+    assert are_rivals(Origin.Human, Origin.Mutant)
+    assert are_rivals(Origin.Mutant, Origin.Human)
+    assert are_rivals(Origin.Robot, Origin.Mutant)
+    assert not are_rivals(Origin.Mutant, Origin.Alien)
+    assert not are_rivals(Team.FantasticFour, Team.Avengers)
+    assert not any(isinstance(item, PowerFamily) for pair in RIVALRIES for item in pair)
