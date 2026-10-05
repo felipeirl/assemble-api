@@ -327,3 +327,16 @@ def test_select_deck_always_includes_a_much_better_match():
 
     for seed in range(50):
         assert "best" in select_deck(candidates, 5, random.Random(seed))
+
+
+def test_select_deck_favors_more_compatible_characters_on_average():
+    candidates = [Candidate(f"c{i}", 40 + i, f"Origin{i % 6}", (), False) for i in range(40)]
+    pool_mean = sum(c.score for c in candidates) / len(candidates)
+    scores = {c.character_id: c.score for c in candidates}
+
+    means = []
+    for seed in range(40):
+        chosen = select_deck(candidates, 10, random.Random(seed))
+        means.append(sum(scores[c] for c in chosen) / len(chosen))
+
+    assert sum(means) / len(means) > pool_mean + 8

@@ -8,11 +8,15 @@ from zoneinfo import ZoneInfo
 
 ALGORITHM_VERSION = "deck-v2"
 NOVELTY_WINDOW = timedelta(days=14)
-NOVELTY_BONUS = 0.15
+NOVELTY_BONUS = 0.45  # na escala da nota já multiplicada por SCORE_WEIGHT (0,15 × 3)
 # Penalidade pela fração do baralho já ocupada pela mesma origem e equipes (cresce de 0 a ~2 vezes
 # este valor). Somada por repetição, ela passava de 2,0 no meio da seleção e fazia os personagens
 # de origem rara entrarem sempre: o baralho saía quase igual para todo mundo.
 VARIETY_PENALTY = 0.4
+# Peso da nota de compatibilidade (0 a 1) frente à variedade e à sorte. Com 1, a variedade engolia a
+# nota: entravam 15 dos 25 mais compatíveis e a nota média do baralho era quase a do conjunto todo.
+# Com 3, entram cerca de 20 dos 25 melhores e os baralhos seguem diferentes.
+SCORE_WEIGHT = 3.0
 # Sorte do sorteio, na mesma escala da nota (0 a 1). Com 0,1 duas contas de gosto parecido recebiam
 # quase os mesmos personagens; com 0,6, quem combina mais ainda tende a entrar, e o resto
 # varia de pessoa para pessoa e de abertura para abertura.
@@ -47,7 +51,7 @@ def select_deck(
             repeats += origin_counts[candidate.origin]
         repeat_share = repeats / max(1, len(selected))
         total = (
-            candidate.score / 100
+            candidate.score / 100 * SCORE_WEIGHT
             + (NOVELTY_BONUS if candidate.is_new else 0.0)
             - VARIETY_PENALTY * repeat_share
             + jitter[candidate.character_id]
