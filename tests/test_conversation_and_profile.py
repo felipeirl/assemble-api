@@ -499,3 +499,33 @@ def test_rewound_messages_are_not_in_the_model_history(client, connected, clock)
 
     sent_texts = [m["content"] for m in connected.llm.calls[-1]["messages"]]
     assert not any("Segunda pergunta apagada" in text for text in sent_texts)
+
+
+def test_concurrent_requests_with_the_same_key_are_processed_once(client, connected, clock):
+    import threading
+    import time
+
+    from tests.fakes import FakeLlm, chat_reply
+
+    def slow(messages):
+        time.sleep(0.3)
+        return chat_reply(messages)
+
+    connected.llm.__dict__.update(FakeLlm(slow).__dict__)
+    connected.llm.calls.clear()
+    clock.current += timedelta(seconds=30)
+    results = []
+
+    def call():
+        results.append(send(client, "Oi, Storm!", key="same-key"))
+
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert [r.status_code for r in results] == [200, 200]
+    assert results[0].json()["reply"]["id"] == results[1].json()["reply"]["id"]
+    assert len(connected.llm.calls) == 1
+    assert len(message_ids(connected)) == 3  # abertura, mensagem e resposta, uma vez só

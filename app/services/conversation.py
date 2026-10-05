@@ -1,5 +1,6 @@
 """Mensagens das conexões: fala de abertura do personagem e respostas (seção 10)."""
 
+import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -64,6 +65,10 @@ class ConversationService:
         self._limiter = limiter
         self._clock = clock
         self._history_limit = history_limit
+        # Uma Idempotency-Key por vez: o app repete o pedido quando estoura o tempo, e a repetição
+        # não pode correr junto com o pedido original (a mensagem seria processada duas vezes).
+        self._key_locks: dict[tuple[str, str, str], list[Any]] = {}
+        self._key_locks_guard = threading.Lock()
 
     def generate_opener(
         self, character_id: str, character: dict[str, Any], locale: str
@@ -89,6 +94,34 @@ class ConversationService:
         }
 
     def send(
+        self,
+        uid: str,
+        connection_id: str,
+        text: str,
+        idempotency_key: str | None,
+        locale: str,
+    ) -> CharacterReply:
+        if idempotency_key is None:
+            return self._send(uid, connection_id, text, idempotency_key, locale)
+        with self._serialized((uid, connection_id, idempotency_key)):
+            return self._send(uid, connection_id, text, idempotency_key, locale)
+
+    @contextmanager
+    def _serialized(self, key: tuple[str, str, str]) -> Iterator[None]:
+        """Pedidos com a mesma chave esperam o primeiro terminar e então repetem a resposta."""
+        with self._key_locks_guard:
+            entry = self._key_locks.setdefault(key, [threading.Lock(), 0])
+            entry[1] += 1
+        try:
+            with entry[0]:
+                yield
+        finally:
+            with self._key_locks_guard:
+                entry[1] -= 1
+                if entry[1] == 0:
+                    self._key_locks.pop(key, None)
+
+    def _send(
         self,
         uid: str,
         connection_id: str,
