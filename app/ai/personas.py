@@ -21,7 +21,7 @@ from app.domain.enums import Style
 from app.repositories import CharacterRepository, PersonaRepository
 
 PERSONA_VERSION = 1
-PROMPT_VERSION = "persona-sheet-v1"
+PROMPT_VERSION = "persona-sheet-v2"
 FIXED_BOUNDARIES = ["não fala de romance", "não afirma eventos como canônicos"]
 LIST_MAX_ITEMS = 6
 ITEM_MAX_CHARS = 200
@@ -46,13 +46,23 @@ Responda apenas com UM objeto JSON (nunca uma lista, nunca texto fora do JSON), 
 "boundaries": ["..."], "sampleLines": ["..."], "styles": ["..."]}}
 
 Significado das chaves:
-- "voice": string curta descrevendo o jeito de falar;
-- "values": lista de valores do personagem;
-- "speechPatterns": lista de padrões de fala;
+- "voice": string curta com o jeito de conversar por mensagem de texto: tom, nível de \
+formalidade, humor;
+- "values": lista de valores e opiniões do personagem, incluindo nuances e contradições;
+- "speechPatterns": lista de hábitos de escrita em um chat (frases curtas, ironia, gírias do\
+ universo dele), nunca bordões;
 - "relationships": lista de relações importantes, só se constarem nos dados;
-- "boundaries": lista de limites de conversa;
-- "sampleLines": 2 ou 3 falas de exemplo ORIGINAIS, escritas por você;
+- "boundaries": lista de limites de CONTEÚDO da conversa (temas que ele evita), nunca \
+restrições de personalidade;
+- "sampleLines": 3 mensagens curtas de chat ORIGINAIS (até 12 palavras cada), respondendo \
+coisas do dia a dia como "e aí, tudo bem?" ou "o que você achou disso?";
 - "styles": lista com 1 a 3 itens entre {", ".join(s.value for s in Style)}.
+
+O objetivo é uma conversa que pareça com uma pessoa no WhatsApp, e não uma caricatura. O \
+personagem tem opiniões, humor, curiosidade e lados inesperados além do arquétipo (um vilão \
+também pode ser sarcástico, curioso ou cansado). Evite clichês como "despreza a humanidade",\
+ discursos, ameaças dramáticas e frases de efeito; mostre a personalidade pela atitude e \
+pelas palavras escolhidas.
 
 Regras:
 - Escreva em português do Brasil, com no máximo {LIST_MAX_ITEMS} itens por lista.
@@ -131,7 +141,7 @@ class PersonaService:
     def run(self) -> PersonaReport:
         """Gera fichas pendentes dos personagens elegíveis, em lotes."""
         report = PersonaReport()
-        existing = self._personas.ids()
+        existing = self._personas.ids_with_prompt_version(PROMPT_VERSION)
         pending = [
             (character_id, doc)
             for character_id, doc in sorted(self._catalog.eligible().items())

@@ -7,7 +7,7 @@ from app.ai.llm import (
     LlmUnavailableError,
     parse_json_object,
 )
-from app.ai.personas import FIXED_BOUNDARIES, build_messages
+from app.ai.personas import FIXED_BOUNDARIES, PROMPT_VERSION, build_messages
 from tests.conftest import JOBS_KEY
 from tests.factories import CHARACTERS, seed_characters
 from tests.fakes import FakeLlm, json_reply
@@ -70,11 +70,20 @@ def test_persona_calls_never_use_user_data_and_skip_zdr(with_llm):
 
 
 def test_existing_personas_are_not_regenerated(with_llm):
-    with_llm.store.set("personas/storm", {"id": "storm"})
+    with_llm.store.set("personas/storm", {"id": "storm", "promptVersion": PROMPT_VERSION})
 
     report = with_llm.persona_service.run()
 
     assert "storm" not in report.generated
+
+
+def test_personas_from_an_older_prompt_version_are_regenerated(with_llm):
+    with_llm.store.set("personas/storm", {"id": "storm", "promptVersion": "persona-sheet-v0"})
+
+    report = with_llm.persona_service.run()
+
+    assert "storm" in report.generated
+    assert with_llm.store.get("personas/storm")["promptVersion"] == PROMPT_VERSION
 
 
 def test_batch_size_limits_generation(with_llm):

@@ -185,6 +185,14 @@ class PersonaRepository:
     def ids(self) -> set[str]:
         return {doc_id for doc_id, _ in self._store.query("personas")}
 
+    def ids_with_prompt_version(self, prompt_version: str) -> set[str]:
+        """Fichas já geradas com a versão atual do prompt; as outras são refeitas."""
+        return {
+            doc_id
+            for doc_id, doc in self._store.query("personas")
+            if doc.get("promptVersion") == prompt_version
+        }
+
 
 class AccessLogRepository:
     def __init__(self, store: DocumentStore) -> None:
