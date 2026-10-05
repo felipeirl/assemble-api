@@ -184,10 +184,23 @@ O provedor rejeita com 400 um esforço que o modelo não aceita; por isso o valo
 O baralho de 40 cards tem duas metades, sem marca no card:
 
 - **20 compatíveis:** os de maior nota com as preferências declaradas, como descrito acima.
-- **20 sugestões:** o que sobrou, escolhido pelo **gosto aprendido** (`app/domain/taste.py`). Cada Assemble conta a favor das características do personagem (origem, equipe, poderes, estilo e faixa de fama) e cada Pass contra. O gosto é recalculado das decisões a cada baralho, sem guardar nada: o Undo já se reflete sozinho, e as preferências declaradas nunca são alteradas.
+- **20 sugestões:** o que sobrou, escolhido pelo **gosto aprendido** (`app/domain/taste.py`). Cada Assemble conta a favor das características do personagem (origem, equipe, poderes, estilo, faixa de fama e, quando a Superhero API tem o dado, herói/vilão e gênero) e cada Pass contra. O gosto é recalculado das decisões a cada baralho, sem guardar nada: o Undo já se reflete sozinho, e as preferências declaradas nunca são alteradas.
 - **Começo:** sem decisões, as sugestões exploram (variedade e sorte). A confiança no gosto aprendido cresce até 100% em 20 decisões (`CONFIDENT_AFTER_DECISIONS`); antes disso, é proporcional.
 - **Medido com um usuário sintético** (gosta de mutantes e X-Men; catálogo real; chance de curtir sem critério: 0,42): as sugestões agradam 0,37 sem decisões, 0,56 com 10, 0,66 com 20 e 0,68 com 40. Sem esticar o gosto entre os candidatos, eram só 0,47 com 40.
 - A chance de match continua usando só a compatibilidade declarada.
+
+### Rodada de reação do cadastro
+
+O cadastro mostra 12 personagens para a pessoa tocar em Curti ou Pular, só para o app conhecer o gosto dela.
+
+- `GET /v2/onboarding/reaction-cards`: 12 cards (`app/domain/reaction.py`) entre os 36 mais conhecidos, escolhidos para cobrir o máximo de origens, equipes, estilos e alinhamentos diferentes.
+- `PUT /v2/taste-signals/{characterId}` com `{"liked": true}`: grava o sinal em `users/{uid}/tasteSignals/{characterId}` e responde `204`.
+- **Não é decisão:** o personagem continua no baralho, pode virar conexão e não conta na cota do dia. O sinal entra no gosto aprendido como uma decisão; se a pessoa decidir sobre o mesmo personagem depois, vale a decisão.
+- Alinhamento e gênero existem só em 68 dos 106 personagens; nos outros, simplesmente não geram característica.
+
+### Frase "o que você procura"
+
+O app grava `lookingFor` (até 140 caracteres) no documento do usuário. Como a bio, é dado não confiável: só é usado se o guardrail aprovar. Entra no perfil enviado ao Laya para a afinidade e na instrução da fala de abertura (inclusive ao regenerar a abertura), como dica para a primeira pergunta.
 
 ## Card do baralho
 

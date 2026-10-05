@@ -22,12 +22,14 @@ from app.repositories import (
     MatchRepository,
     MessageRepository,
     PersonaRepository,
+    TasteSignalRepository,
     UserRepository,
 )
 from app.services.account import AccountService
 from app.services.conversation import ConversationService
 from app.services.decisions import DecisionService
 from app.services.deck import DeckService
+from app.services.onboarding import OnboardingService
 from app.services.profiles import ProfileService
 from app.store.base import DocumentStore
 
@@ -71,6 +73,7 @@ class Container:
             characters=self.characters,
             matches=self.matches,
             messages=MessageRepository(self.store),
+            users=self.users,
             limiter=SlidingWindowLimiter(
                 self.settings.messages_per_hour, MESSAGE_LIMIT_WINDOW, self.clock
             ),
@@ -146,6 +149,10 @@ class Container:
         return MatchRepository(self.store)
 
     @cached_property
+    def taste_signals(self) -> TasteSignalRepository:
+        return TasteSignalRepository(self.store)
+
+    @cached_property
     def characters(self) -> CharacterRepository:
         return CharacterRepository(self.store)
 
@@ -161,8 +168,19 @@ class Container:
             users=self.users,
             decisions=self.decisions,
             decks=DeckRepository(self.store),
+            signals=self.taste_signals,
             clock=self.clock,
             deck_size=self.settings.deck_size,
+        )
+
+    @cached_property
+    def onboarding_service(self) -> OnboardingService:
+        return OnboardingService(
+            catalog=self.catalog,
+            users=self.users,
+            decisions=self.decisions,
+            signals=self.taste_signals,
+            clock=self.clock,
         )
 
     @cached_property

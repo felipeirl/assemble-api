@@ -1,7 +1,8 @@
 """Gosto aprendido pelas decisões: Assemble conta a favor das características, Pass contra.
 
-Funções puras. O gosto não é gravado: é recalculado das decisões a cada baralho, então o Undo
-e as decisões apagadas já se refletem sozinhos, e as preferências declaradas ficam intactas.
+Funções puras. O gosto não é gravado: é recalculado das decisões (e dos sinais da rodada de
+reação do cadastro) a cada baralho, então o Undo e as decisões apagadas já se refletem sozinhos,
+e as preferências declaradas ficam intactas.
 """
 
 from collections import Counter
@@ -39,6 +40,10 @@ def trait_keys(traits: CharacterTraits) -> list[str]:
     keys += [f"power:{power.value}" for power in traits.powers]
     keys += [f"team:{team.value}" for team in traits.teams]
     keys += [f"style:{style.value}" for style in traits.styles]
+    if traits.alignment:
+        keys.append(f"alignment:{traits.alignment}")
+    if traits.appearance is not None and traits.appearance.gender:
+        keys.append(f"gender:{traits.appearance.gender}")
     fame = character_fame(traits.issueAppearances)
     if fame is not None:
         keys.append(

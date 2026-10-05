@@ -92,6 +92,21 @@ describe("users/{uid}", () => {
     await seed(`users/${UID}`, VALID_PROFILE);
     await assertFails(updateDoc(doc(db(), `users/${UID}`), { avatarPreset: 6 }));
   });
+
+  test("lookingFor aceita até 140 caracteres de texto", async () => {
+    await seed(`users/${UID}`, VALID_PROFILE);
+    const ref = doc(db(), `users/${UID}`);
+    await assertSucceeds(updateDoc(ref, { lookingFor: "x".repeat(140) }));
+    await assertFails(updateDoc(ref, { lookingFor: "x".repeat(141) }));
+    await assertFails(updateDoc(ref, { lookingFor: 42 }));
+  });
+
+  test("sinais da rodada de reação: o dono lê, o app nunca grava", async () => {
+    await seed(`users/${UID}`, VALID_PROFILE);
+    await seed(`users/${UID}/tasteSignals/storm`, { liked: true });
+    await assertSucceeds(getDoc(doc(db(), `users/${UID}/tasteSignals/storm`)));
+    await assertFails(setDoc(doc(db(), `users/${UID}/tasteSignals/rocket`), { liked: true }));
+  });
 });
 
 describe("profileStyle", () => {

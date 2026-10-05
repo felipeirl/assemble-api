@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 
 from app.access_log import route_label
-from app.api import account, conversations, deck, jobs
+from app.api import account, conversations, deck, jobs, onboarding
 from app.config import get_settings
 from app.container import Container, build_container
 from app.errors import install_error_handlers
@@ -49,6 +49,7 @@ def create_app(container_factory: Callable[[], Container] | None = None) -> Fast
         return response
 
     app.include_router(deck.router)
+    app.include_router(onboarding.router)
     app.include_router(conversations.router)
     app.include_router(account.router)
     app.include_router(jobs.router)

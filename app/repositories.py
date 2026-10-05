@@ -9,6 +9,8 @@ from app.store.base import DELETE_FIELD, Document, DocumentStore
 USER_STATUS_ACTIVE = "active"
 USER_STATUS_DEACTIVATED = "deactivated"
 ELIGIBLE_TIERS = ["A", "B"]
+# "O que você procura numa conversa?", do cadastro; o app limita, aqui só se garante.
+LOOKING_FOR_MAX_CHARS = 140
 
 
 def user_path(uid: str) -> str:
@@ -31,6 +33,10 @@ def decks_path(uid: str) -> str:
     return f"users/{uid}/decks"
 
 
+def taste_signals_path(uid: str) -> str:
+    return f"users/{uid}/tasteSignals"
+
+
 class UserRepository:
     def __init__(self, store: DocumentStore) -> None:
         self._store = store
@@ -41,6 +47,12 @@ class UserRepository:
     def preferences(self, uid: str) -> Preferences:
         user = self.get(uid) or {}
         return Preferences.model_validate(user.get("preferences") or {})
+
+    def looking_for(self, uid: str) -> str | None:
+        """Frase escrita pelo usuário: dado não confiável, checado pelo guardrail antes do uso."""
+        user = self.get(uid) or {}
+        text = str(user.get("lookingFor") or "").strip()[:LOOKING_FOR_MAX_CHARS]
+        return text or None
 
     def deactivate(self, uid: str, at: datetime) -> None:
         self._store.set(
@@ -169,6 +181,22 @@ class DeckRepository:
 
     def update(self, uid: str, date: str, data: dict[str, Any]) -> None:
         self._store.update(f"{decks_path(uid)}/{date}", data)
+
+
+class TasteSignalRepository:
+    """Curti/Pular da rodada de reação do cadastro: ensina o gosto, não é decisão."""
+
+    def __init__(self, store: DocumentStore) -> None:
+        self._store = store
+
+    def save(self, uid: str, character_id: str, data: dict[str, Any]) -> None:
+        self._store.set(f"{taste_signals_path(uid)}/{character_id}", data)
+
+    def liked_by_character(self, uid: str) -> dict[str, bool]:
+        return {
+            doc_id: bool(doc.get("liked"))
+            for doc_id, doc in self._store.query(taste_signals_path(uid))
+        }
 
 
 class CharacterRepository:

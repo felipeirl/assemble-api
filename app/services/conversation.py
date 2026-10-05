@@ -21,6 +21,7 @@ from app.repositories import (
     MatchRepository,
     MessageRepository,
     PersonaRepository,
+    UserRepository,
 )
 from app.store.base import DELETE_FIELD, Increment
 from app.timing import timed
@@ -53,6 +54,7 @@ class ConversationService:
         characters: CharacterRepository,
         matches: MatchRepository,
         messages: MessageRepository,
+        users: UserRepository,
         limiter: SlidingWindowLimiter,
         clock: Clock,
         history_limit: int,
@@ -62,6 +64,7 @@ class ConversationService:
         self._characters = characters
         self._matches = matches
         self._messages = messages
+        self._users = users
         self._limiter = limiter
         self._clock = clock
         self._history_limit = history_limit
@@ -71,7 +74,7 @@ class ConversationService:
         self._key_locks_guard = threading.Lock()
 
     def generate_opener(
-        self, character_id: str, character: dict[str, Any], locale: str
+        self, uid: str, character_id: str, character: dict[str, Any], locale: str
     ) -> ChatResult:
         request = ChatRequest(
             request_id=str(uuid.uuid4()),
@@ -79,6 +82,7 @@ class ConversationService:
             locale=locale,
             character=character_context(character_id, character, locale),
             persona=self._personas.get(character_id) or {},
+            looking_for=self._users.looking_for(uid),
         )
         with provider_errors_as_api_errors(), timed("fala de abertura (total)"):
             return self._engine().respond(request)
@@ -192,6 +196,7 @@ class ConversationService:
             persona=self._personas.get(connection_id) or {},
             history=self._history_from(history_docs),
             message=text,
+            looking_for=self._users.looking_for(uid) if mode == "opener" else None,
         )
         try:
             with provider_errors_as_api_errors():

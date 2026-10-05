@@ -42,6 +42,8 @@ class ChatRequest:
     persona: dict[str, Any]
     history: list[dict[str, str]] = field(default_factory=list)
     message: str = ""
+    # "O que você procura numa conversa?", escrito pelo usuário; só usado na abertura.
+    looking_for: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,9 +140,9 @@ class ChatEngine:
             role = "user" if item["role"] == "user" else "assistant"
             messages.append({"role": role, "content": item["text"]})
         if request.mode == "opener":
-            messages.append(
-                {"role": "user", "content": prompts.opener_instruction(request.character["name"])}
-            )
+            looking_for = self._trusted_user_text(request.looking_for)
+            instruction = prompts.opener_instruction(request.character["name"], looking_for)
+            messages.append({"role": "user", "content": instruction})
         else:
             note = prompts.conversation_move(request.history, request.message)
             messages.append({"role": "user", "content": f"{request.message}\n\n{note}"})
@@ -154,6 +156,15 @@ class ChatEngine:
             logger.info("Resumo da fonte descartado pelo guardrail.")
             return None
         return summary
+
+    def _trusted_user_text(self, text: str | None) -> str | None:
+        """Texto do perfil do usuário só entra no prompt se o guardrail aprovar."""
+        if not text:
+            return None
+        if self._guardrail.check_source(text).blocked:
+            logger.info("Frase do perfil descartada pelo guardrail.")
+            return None
+        return text
 
     def _fixed(
         self,

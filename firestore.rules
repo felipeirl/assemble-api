@@ -3,7 +3,7 @@ rules_version = '2';
 // Assemble — regras do Firestore.
 // O backend usa o Admin SDK e ignora estas regras; elas valem só para o app.
 // Leitura: o dono lê o próprio users/{uid} e subcoleções.
-// Escrita do app: perfil (com a foto), preferências e aiConsent em users/{uid};
+// Escrita do app: perfil (com a foto e a frase lookingFor), preferências e aiConsent em users/{uid};
 // lastReadAt e profileUnlockSeenAt em matches/*. Todo o resto é negado.
 
 service cloud.firestore {
@@ -21,7 +21,7 @@ service cloud.firestore {
 
     function profileFields() {
       return ['displayName', 'bio', 'avatarPreset', 'avatarPhoto', 'profileStyle', 'createdAt',
-              'onboardingCompletedAt', 'preferences', 'aiConsent'];
+              'onboardingCompletedAt', 'preferences', 'aiConsent', 'lookingFor'];
     }
 
     function enumList(values, allowed) {
@@ -89,6 +89,7 @@ service cloud.firestore {
     function validProfile(d) {
       return (!('displayName' in d) || (d.displayName is string && d.displayName.size() <= 60))
         && (!('bio' in d) || (d.bio is string && d.bio.size() <= 500))
+        && (!('lookingFor' in d) || (d.lookingFor is string && d.lookingFor.size() <= 140))
         && (!('avatarPreset' in d)
               || (d.avatarPreset is int && d.avatarPreset >= 0 && d.avatarPreset <= 5))
         // Foto: JPEG de 256 px em Base64 (uns 30 mil caracteres); o perfil só é visto pelo dono.
@@ -112,7 +113,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileFields())
         && validProfile(request.resource.data);
 
-      // Leitura das subcoleções (decisions, matches, messages, decks), só com conta ativa.
+      // Leitura das subcoleções (decisions, matches, messages, decks, tasteSignals), só com conta ativa.
       match /{subcollection=**} {
         allow read: if isOwner(uid) && !isDeactivated(uid);
       }

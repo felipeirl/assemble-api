@@ -133,6 +133,9 @@ class DecisionService:
             bio = str(user.get("bio") or "").strip()[:USER_BIO_MAX_CHARS]
             if bio and not self._guardrail.check_source(bio).blocked:
                 profile["bio"] = bio
+            looking_for = self._users.looking_for(uid)
+            if looking_for and not self._guardrail.check_source(looking_for).blocked:
+                profile["lookingFor"] = looking_for
             return self._guardrail.affinity(
                 json.dumps(profile, ensure_ascii=False), json.dumps(sheet, ensure_ascii=False)
             )
@@ -152,7 +155,7 @@ class DecisionService:
         existing = self._matches.get(uid, character_id)
         if existing is not None:
             return existing
-        opener = self._conversation.generate_opener(character_id, character, locale)
+        opener = self._conversation.generate_opener(uid, character_id, character, locale)
         match: dict[str, Any] = {
             **decided,
             "createdAt": self._clock.now(),

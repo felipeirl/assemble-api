@@ -33,6 +33,16 @@ class Deck(BaseModel):
     canUndo: bool
 
 
+class ReactionCards(BaseModel):
+    cards: list[DeckCard]
+
+
+class TasteSignalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    liked: bool
+
+
 class MatchCharacter(BaseModel):
     characterId: str
     name: str

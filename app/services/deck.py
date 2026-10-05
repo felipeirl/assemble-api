@@ -20,7 +20,12 @@ from app.domain.compatibility import score, traits_in_common
 from app.domain.enums import Choice
 from app.domain.models import CharacterTraits, Preferences
 from app.errors import ApiError
-from app.repositories import DecisionRepository, DeckRepository, UserRepository
+from app.repositories import (
+    DecisionRepository,
+    DeckRepository,
+    TasteSignalRepository,
+    UserRepository,
+)
 from app.store.base import DELETE_FIELD
 
 LAST_PASS_FIELD = "lastPassCharacterId"
@@ -33,6 +38,7 @@ class DeckService:
         users: UserRepository,
         decisions: DecisionRepository,
         decks: DeckRepository,
+        signals: TasteSignalRepository,
         clock: Clock,
         deck_size: int,
         rng_factory: Callable[[], random.Random] = random.Random,
@@ -41,6 +47,7 @@ class DeckService:
         self._users = users
         self._decisions = decisions
         self._decks = decks
+        self._signals = signals
         self._clock = clock
         self._deck_size = deck_size
         self._rng_factory = rng_factory
@@ -142,14 +149,22 @@ class DeckService:
         return candidates, traits
 
     def _taste(self, uid: str) -> taste_rules.Taste:
-        """Gosto aprendido: Assemble conta a favor das características, Pass contra."""
+        """Gosto aprendido: Assemble (ou Curti na rodada de reação) a favor, Pass contra.
+
+        A decisão de um personagem vale no lugar do sinal da rodada, sem contar duas vezes.
+        """
+        liked_by_character = self._signals.liked_by_character(uid)
+        liked_by_character.update(
+            {
+                character_id: choice == Choice.ASSEMBLE.value
+                for character_id, choice in self._decisions.choices(uid).items()
+            }
+        )
         history = []
-        for character_id, choice in self._decisions.choices(uid).items():
+        for character_id, liked in liked_by_character.items():
             doc = self._catalog.get(character_id)
             if doc is not None:
-                history.append(
-                    (CharacterTraits.model_validate(doc), choice == Choice.ASSEMBLE.value)
-                )
+                history.append((CharacterTraits.model_validate(doc), liked))
         return taste_rules.learn(history)
 
 

@@ -18,8 +18,18 @@ class Preferences(BaseModel):
     fame: float = Field(default=0.5, ge=FAME_ICONS, le=FAME_HIDDEN_GEMS)
 
 
+class TraitAppearance(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    gender: str | None = None
+
+
 class CharacterTraits(BaseModel):
-    """Traços mapeados de um personagem, usados na compatibilidade."""
+    """Traços mapeados de um personagem, usados na compatibilidade e no gosto aprendido.
+
+    `alignment` e `appearance.gender` vêm da Superhero API e faltam em parte do catálogo;
+    entram só no gosto aprendido, nunca na compatibilidade declarada.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -28,3 +38,5 @@ class CharacterTraits(BaseModel):
     teams: list[Team] = Field(default_factory=list)
     styles: list[Style] = Field(default_factory=list)
     issueAppearances: int | None = None
+    alignment: str | None = None
+    appearance: TraitAppearance | None = None
