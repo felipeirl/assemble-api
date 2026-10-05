@@ -1,10 +1,13 @@
 # Assemble — Backend
 
-Único servidor do app Assemble (Android). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o match e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
+> **Projeto acadêmico.** Não é afiliado, patrocinado ou endossado pela Marvel, pela Comic Vine ou por qualquer editora. Nomes e marcas pertencem aos seus donos. Toda conversa é ficção gerada por IA.
 
-- Especificação: `Assemble-backend-python.md`
-- Contrato da API V2: `Assemble-contrato-api.md` (prevalece em rotas, formatos e erros)
-- Perfis personalizáveis e fontes de dados: `Assemble-perfis-e-fontes.md`
+Único servidor do app Assemble ([repositório do app Android](https://github.com/felipeirl/assemble-app)). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o match e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
+
+- Contrato da API V2: [`docs/api-contract.md`](docs/api-contract.md) (prevalece em rotas, formatos e erros)
+- Rodar no PC com ngrok: [`docs/local-run.md`](docs/local-run.md)
+- Deploy no Google Cloud Run (opcional): [`docs/cloud-run.md`](docs/cloud-run.md)
+- Histórico de versões: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Arquitetura
 
@@ -246,7 +249,7 @@ Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quan
 
 ## Casamento com a Superhero API
 
-A Superhero API não tem o ID da Comic Vine. O casamento segue esta ordem (`Assemble-perfis-e-fontes.md` §3.1):
+A Superhero API não tem o ID da Comic Vine. O casamento segue esta ordem:
 
 1. a tabela manual `data/superhero_matches.json`;
 2. a ponte Wikidata: o item com o ID da Comic Vine ([P5905](https://www.wikidata.org/wiki/Property:P5905)) traz o rótulo e os apelidos, e o candidato só é aceito se for único com nome real entre esses nomes;
@@ -265,5 +268,11 @@ O comando gera `data/superhero_review.json`. Confirme o id na fonte, copie o par
 - Fatos dos personagens: [Comic Vine](https://comicvine.gamespot.com/api/).
 - Seção "Personality": [Marvel Database](https://marvel.fandom.com/) (CC BY-SA). A URL de origem fica guardada em `sources` para o crédito.
 - Afiliações complementares e, em breve, atributos, aparência e dados de perfil: [Superhero API](https://akabab.github.io/superhero-api/) (MIT).
-- Planejadas: [Wikidata](https://www.wikidata.org/) (CC0) como ponte de IDs e o conjunto `comic-characters` da [FiveThirtyEight](https://github.com/fivethirtyeight/data) como reserva. Detalhes em `Assemble-perfis-e-fontes.md`.
+- Planejadas: [Wikidata](https://www.wikidata.org/) (CC0) como ponte de IDs e o conjunto `comic-characters` da [FiveThirtyEight](https://github.com/fivethirtyeight/data) como reserva.
 - Toda fala de personagem é **ficção gerada por IA**, nunca canon nem aprovada pela editora.
+
+## Versões e licença
+
+As versões seguem o [SemVer](https://semver.org/lang/pt-BR/) e estão no [`CHANGELOG.md`](CHANGELOG.md); cada uma tem uma tag `vX.Y.Z`. A versão atual está em `pyproject.toml`. Para lançar: atualize a versão e o changelog, faça o commit e crie a tag (`git tag -a v0.2.0 -m "v0.2.0"`).
+
+Código sob a licença [MIT](LICENSE). Os dados dos personagens pertencem às suas fontes (veja *Fontes e licenças*).

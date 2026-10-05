@@ -1,6 +1,6 @@
 """Superhero API (akabab): enriquece personagens que já existem; nunca cria personagem.
 
-Casamento (Assemble-perfis-e-fontes.md §3.1): tabela manual → Wikidata → automático restrito
+Casamento: tabela manual → Wikidata → automático restrito
 → revisão.
 """
 

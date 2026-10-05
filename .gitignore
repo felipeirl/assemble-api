@@ -26,8 +26,14 @@ backup-pre-reescrita/
 .DS_Store
 Thumbs.db
 
-# Logs locais do Claude Code
-.claude/session-logs/
+# Ferramentas de IA e anotações de trabalho: ficam só no disco local
+.claude/
+.maestri/
+.codex/
+.cursor/
+.gemini/
+.windsurf/
+.aider*
 
 # Testes das regras do Firestore (Node)
 node_modules/
@@ -37,3 +43,7 @@ firestore-debug.log
 # Logs do servidor local
 server.log
 server.out.log
+
+# Documentação interna (especificações de trabalho); docs/*.md são públicos
+docs/internal/
+*.bundle
