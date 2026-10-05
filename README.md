@@ -132,10 +132,21 @@ O Laya multilíngue roda na CPU e faz perguntas sim/não sobre cada mensagem. Os
 - **Autoagressão:** palavras-chave em pt e en, mais o modelo (limiar 0,35). Responde com o encaminhamento ao CVV 188.
 - **E-mail, telefone e CPF:** regras determinísticas; o Laya sozinho não os detecta de forma confiável.
 - **Jailbreak, sexual e romance:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
-- **Saída do modelo e bio da fonte:** limiares próprios (`app/ai/guardrail.py`).
+- **Saída do modelo:** "saiu do personagem" (modelo de linguagem, ChatGPT, roleplay, prompt de sistema...) é pego por palavras-chave. O limiar do modelo para esse motivo é 0,9, porque personagens robôs em personagem pontuam de 0,50 a 0,72, na mesma faixa dos vazamentos reais.
+- **Bio da fonte:** limiar próprio (`app/ai/guardrail.py`).
 - **Chat só com modelos de retenção zero.** Modelos `contributor` treinam com o que recebem e são recusados na configuração; ficam restritos às fichas e traduções (dados públicos).
 
 Ao trocar o modelo do Laya ou as perguntas, meça de novo antes de mexer nos limiares.
+
+## Tom do chat
+
+O chat deve parecer uma conversa de mensagens, não uma caricatura do personagem. O prompt global (`app/ai/prompts.py`, `persona-v2`) pede respostas de 1 a 2 frases, reação ao que o usuário acabou de dizer, sem bordões nem monólogos. As fichas de persona (`persona-sheet-v2`) descrevem o jeito de escrever em chat, e o job `/jobs/personas` refaz sozinho as fichas de versões anteriores do prompt.
+
+O modelo de chat às vezes devolve só um número ou a lista de sugestões no lugar da resposta. O backend tenta até 3 vezes e nunca mostra JSON cru ao usuário.
+
+## Card do baralho
+
+Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quando existe), com até 140 caracteres e sem o título de seção do Comic Vine. Sem bio, o campo não vem.
 
 ## Idioma (pt-BR)
 
