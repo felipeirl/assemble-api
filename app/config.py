@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     translation_concurrency: int = 1
     guardrail_enabled: bool = True
     guardrail_threshold: float = 0.5
-    chat_history_limit: int = 20
+    chat_history_limit: int = 40
     messages_per_hour: int = 60
 
     # Decisão de match (seção 7) — valores iniciais, a calibrar

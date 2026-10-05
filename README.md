@@ -80,7 +80,7 @@ Opcionais (valores padrão em `app/config.py`):
 | `MATCH_CUTOFF` | 0.55 | corte do match |
 | `DECK_SIZE` | 40 | personagens por dia |
 | `MESSAGES_PER_HOUR` | 60 | limite de mensagens por usuário |
-| `CHAT_HISTORY_LIMIT` | 20 | mensagens enviadas ao modelo |
+| `CHAT_HISTORY_LIMIT` | 40 | mensagens enviadas ao modelo (cerca de 20 trocas) |
 | `GUARDRAIL_ENABLED` / `GUARDRAIL_THRESHOLD` | true / 0.5 | Laya e limiar de bloqueio |
 | `TIER_B_MIN_APPEARANCES` | 50 | aparições mínimas do tier B |
 | `INGEST_MAX_REQUESTS_PER_RESOURCE` | 190 | requisições à Comic Vine por recurso, por execução |
