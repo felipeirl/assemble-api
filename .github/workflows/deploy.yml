@@ -59,8 +59,8 @@ jobs:
       id-token: write
     env:
       REGION: ${{ vars.GCP_REGION }}
-      SERVICE: assemble-backend
-      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/assemble/assemble-backend:${{ github.sha }}
+      SERVICE: assemble-api
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/assemble/assemble-api:${{ github.sha }}
     steps:
       - uses: actions/checkout@v6
 

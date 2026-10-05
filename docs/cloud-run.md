@@ -101,7 +101,7 @@ Em *Secrets*, para os jobs agendados (`.github/workflows/jobs.yml`):
 | Secret | Valor |
 |---|---|
 | `JOBS_KEY` | o mesmo valor do segredo `assemble-jobs-key` |
-| `ASSEMBLE_API_URL` | a URL do serviço, que o primeiro deploy mostra (`https://assemble-backend-….run.app`) |
+| `ASSEMBLE_API_URL` | a URL do serviço, que o primeiro deploy mostra (`https://assemble-api-….run.app`) |
 
 ## 7. Primeiro deploy
 

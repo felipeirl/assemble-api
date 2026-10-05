@@ -96,7 +96,7 @@ wheels = [
 ]
 
 [[package]]
-name = "assemble-backend"
+name = "assemble-api"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

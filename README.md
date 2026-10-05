@@ -1,4 +1,4 @@
-# Assemble — Backend
+# Assemble API
 
 > **Projeto acadêmico.** Não é afiliado, patrocinado ou endossado pela Marvel, pela Comic Vine ou por qualquer editora. Nomes e marcas pertencem aos seus donos. Toda conversa é ficção gerada por IA.
 
@@ -46,8 +46,8 @@ Verificação: `GET http://127.0.0.1:8000/health` → `{"status":"ok"}`.
 Com Docker:
 
 ```bash
-docker build -t assemble-backend .
-docker run --env-file .env -p 7860:7860 assemble-backend
+docker build -t assemble-api .
+docker run --env-file .env -p 7860:7860 assemble-api
 ```
 
 ## Testes e lint
