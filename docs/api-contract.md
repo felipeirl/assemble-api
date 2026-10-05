@@ -161,6 +161,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 | POST | `/v2/connections/{id}/messages/rewind` | `{ "messageId" }` | `204` | "Voltar a conversa" |
 | GET | `/v2/onboarding/reaction-cards` | — | `{ cards: [DeckCard] }` | cadastro: rodada "este ou aquele" |
 | PUT | `/v2/taste-signals/{id}` | `{ "liked": true }` | `204` | cadastro: ensina o gosto, não é decisão |
+| POST | `/v2/account/email-verification` | — | `204` | tela "Confirme o seu e-mail" (503: o app usa o e-mail do Firebase) |
 | POST | `/v2/me/photo/signature` | — | `{ uploadUrl, fields }` | foto do perfil no Cloudinary (503 se não configurado) |
 | GET | `/v2/me/stats` | — | `UserStats` | menu lateral, conquistas |
 | POST | `/v2/chats/hide` | — | `204` | Configurações → Delete chats |
@@ -186,6 +187,7 @@ Formato: `{ "error": "codigo", "message": "texto no idioma do Accept-Language" }
 | 400 | `invalid_request` | corpo inválido, texto vazio/longo, enum desconhecido | mensagem genérica; não tenta de novo |
 | 401 | `unauthenticated` | token ausente/expirado | renova o token uma vez; se falhar, volta ao Login |
 | 403 | `account_deactivated` | conta em carência | tela de conta desativada com "Reactivate" |
+| 403 | `email_not_verified` | cadastro por e-mail e senha sem o e-mail confirmado | tela "Confirme o seu e-mail" |
 | 404 | `not_found` | personagem/conexão não existe | estado "Unavailable" |
 | 409 | `nothing_to_undo`, `nothing_to_regenerate`, `already_decided` | Undo sem Pass; nada para regenerar; decisão repetida sem a mesma `Idempotency-Key` | some com o botão / usa a decisão gravada |
 | 422 | `blocked_content` | mensagem do usuário recusada pela Laya **antes** de chegar ao modelo | balão com aviso, sem resposta do personagem |

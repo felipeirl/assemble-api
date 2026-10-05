@@ -22,6 +22,16 @@ class Settings(BaseSettings):
         "deepseek/deepseek-v4.1-flash": "off",
     }
     jobs_key: SecretStr | None = None
+    # Verificação de e-mail no cadastro por e-mail e senha (o login com Google já vem confirmado).
+    require_email_verification: bool = True
+    verification_resend_seconds: int = 60
+    # SMTP do e-mail em HTML, por exemplo uma conta do Gmail com senha de app (sem domínio próprio).
+    # Sem SMTP, o app pede o e-mail padrão do próprio Firebase.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_sender_name: str = "Assemble"
     # Foto do perfil no Cloudinary; sem as três, o app guarda a foto no Firestore, como antes.
     cloudinary_cloud_name: str | None = None
     cloudinary_api_key: str | None = None

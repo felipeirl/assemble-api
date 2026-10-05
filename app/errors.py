@@ -9,6 +9,7 @@ STATUS_BY_CODE = {
     "invalid_request": 400,
     "unauthenticated": 401,
     "account_deactivated": 403,
+    "email_not_verified": 403,
     "not_found": 404,
     "nothing_to_undo": 409,
     "already_decided": 409,
@@ -30,6 +31,10 @@ MESSAGES = {
     "account_deactivated": {
         EN: "This account is deactivated.",
         PT_BR: "Esta conta está desativada.",
+    },
+    "email_not_verified": {
+        EN: "Confirm your email to continue. Check your inbox.",
+        PT_BR: "Confirme o seu e-mail para continuar. Veja a sua caixa de entrada.",
     },
     "not_found": {
         EN: "Not found.",

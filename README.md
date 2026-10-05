@@ -87,6 +87,10 @@ Opcionais (valores padrão em `app/config.py`):
 | `MEMORY_MODEL` | `deepseek/deepseek-v4.1-flash` | modelo que escreve o resumo da conversa (retenção zero, sem raciocínio) |
 | `MEMORY_BATCH_SIZE` | 10 | mensagens fora da janela que acumulam antes de entrarem no resumo |
 | `MEMORY_CHUNK_SIZE` | 30 | mensagens por chamada ao resumir uma conversa antiga |
+| `REQUIRE_EMAIL_VERIFICATION` | `true` | cadastro por e-mail e senha só entra no app depois de confirmar o e-mail |
+| `SMTP_HOST`, `SMTP_PORT` | `smtp.gmail.com`, `587` | servidor SMTP do e-mail de confirmação em HTML |
+| `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SENDER_NAME` | vazio, vazio, `Assemble` | conta que envia (Gmail com senha de app serve, sem domínio) e o nome exibido |
+| `VERIFICATION_RESEND_SECONDS` | 60 | intervalo mínimo entre dois e-mails de confirmação do mesmo usuário |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | vazio | foto do perfil no Cloudinary; sem as três, o app guarda a foto no Firestore |
 | `GUARDRAIL_ENABLED` / `GUARDRAIL_THRESHOLD` | true / 0.5 | Laya e limiar de bloqueio |
 | `TIER_B_MIN_APPEARANCES` | 50 | aparições mínimas do tier B |
@@ -191,6 +195,17 @@ O personagem lê as últimas `CHAT_HISTORY_LIMIT` (40) mensagens. O que sai dess
 - **Voltar a conversa:** se o destino for anterior ao que o resumo cobre, o resumo é apagado e refeito aos poucos. **Ocultar conversas** apaga o resumo junto.
 - **O app não mostra nem edita o resumo**, e as regras do Firestore não deixam o app escrevê-lo.
 - **Medido com o modelo real:** conversa de 100 mensagens com 6 fatos do usuário contados no começo (nome do cachorro, profissão, medo, irmã, comida, cidade de origem). Sem resumo o personagem acertou 0 de 6 perguntas; com resumo, 6 de 6. Resumir 60 mensagens levou cerca de 42 s, em segundo plano.
+
+## Verificação de e-mail
+
+Quem se cadastra por **e-mail e senha** precisa confirmar o e-mail antes de usar o app; quem entra com a conta Google já vem confirmado pelo provedor.
+
+- **O bloqueio:** com `REQUIRE_EMAIL_VERIFICATION=true`, toda rota `/v2/*` de uma conta por e-mail e senha sem o e-mail confirmado responde `403 email_not_verified`. A confirmação é lida do ID token (`email_verified`). Ficam livres só as rotas de reativar a conta e de reenviar o e-mail.
+- **O e-mail:** `POST /v2/account/email-verification` gera o link com o Firebase Auth e manda um **e-mail em HTML com o design system do app** (`app/mailer.py`: gradiente de energia, Barlow Condensed e Inter, botão rosa, versões em pt-BR e inglês, mais o texto simples). O link abre a página padrão do Firebase, então **não precisa de domínio próprio**.
+- **O envio:** SMTP comum. Para um projeto acadêmico, uma conta do Gmail com a verificação em duas etapas e uma **senha de app** serve: preencha `SMTP_USER` (o e-mail do Gmail) e `SMTP_PASSWORD` (a senha de app de 16 letras). O e-mail sai em nome de `SMTP_SENDER_NAME`.
+- **Sem SMTP, ou com ele fora do ar:** a rota responde `503 provider_unavailable` e o app pede o e-mail padrão do próprio Firebase, sem o HTML do app. Nada trava.
+- **Reenvio:** no máximo um e-mail a cada `VERIFICATION_RESEND_SECONDS`; antes disso, `429` com `Retry-After`. Conta já confirmada não recebe nada.
+- Contas antigas por e-mail e senha cujo e-mail nunca foi confirmado também passam a precisar da confirmação.
 
 ## Foto do perfil (Cloudinary)
 

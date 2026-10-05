@@ -14,6 +14,7 @@ from app.clock import Clock
 from app.config import Settings
 from app.domain.match import MatchWeights
 from app.jobs import JobRunner
+from app.mailer import VerificationMailer
 from app.media import CloudinaryPhotos
 from app.rate_limit import SlidingWindowLimiter
 from app.repositories import (
@@ -33,6 +34,7 @@ from app.services.decisions import DecisionService
 from app.services.deck import DeckService
 from app.services.onboarding import OnboardingService
 from app.services.profiles import ProfileService
+from app.services.verification import EmailVerificationService
 from app.store.base import DocumentStore
 
 if TYPE_CHECKING:
@@ -65,6 +67,31 @@ class Container:
             return None
         return ChatEngine(
             self.llm, self.guardrail, models, reasoning_efforts=self.settings.chat_reasoning_efforts
+        )
+
+    @cached_property
+    def mailer(self) -> VerificationMailer | None:
+        s = self.settings
+        if not (s.smtp_user and s.smtp_password):
+            return None
+        return VerificationMailer(
+            s.smtp_host,
+            s.smtp_port,
+            s.smtp_user,
+            s.smtp_password.get_secret_value(),
+            s.smtp_sender_name,
+        )
+
+    @cached_property
+    def verification_service(self) -> EmailVerificationService:
+        return EmailVerificationService(
+            mailer=self.mailer,
+            auth_admin=self.token_verifier,
+            users=self.users,
+            limiter=SlidingWindowLimiter(
+                1, timedelta(seconds=self.settings.verification_resend_seconds), self.clock
+            ),
+            clock=self.clock,
         )
 
     @cached_property

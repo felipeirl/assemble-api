@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import InvalidTokenError
 from app.config import Settings
 from app.container import Container
+from app.identity import Identity, InvalidTokenError
 from app.main import create_app
 from app.store.memory import MemoryStore
 from tests.fakes import FakeGuardrail, FakeLlm, chat_reply
@@ -24,10 +24,18 @@ class FakeTokenVerifier:
     def __init__(self) -> None:
         self.deleted: list[str] = []
 
-    def verify(self, token: str) -> str:
+    def verify(self, token: str) -> Identity:
         if not token.startswith("token-"):
             raise InvalidTokenError("token inválido")
-        return token.removeprefix("token-")
+        uid = token.removeprefix("token-")
+        # `token-<uid>!unverified`: login por e-mail e senha ainda sem o e-mail confirmado.
+        if uid.endswith("!unverified"):
+            uid = uid.removesuffix("!unverified")
+            return Identity(uid, f"{uid}@example.com", email_verified=False, password_login=True)
+        return Identity(uid, f"{uid}@example.com", email_verified=True, password_login=True)
+
+    def email_verification_link(self, email: str) -> str:
+        return f"https://example.test/verify?email={email}"
 
     def delete_user(self, uid: str) -> None:
         self.deleted.append(uid)
