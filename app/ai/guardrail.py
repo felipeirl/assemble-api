@@ -147,6 +147,25 @@ def is_style_request(text: str) -> bool:
     return STYLE_REQUEST_PATTERN.search(text) is not None and OVERRIDE_PATTERN.search(text) is None
 
 
+# Afirmar ser canônico só vale com uma palavra de oficialidade: "a elegância do meu design" dava
+# 0,64 a 0,97 no Laya e o usuário recebia a recusa genérica no lugar de um agradecimento.
+CANON_CUE_PATTERN = re.compile(
+    r"can[ôo]n|oficial|official|aprovad|approved|autorizad|licen[cç]|\bmarvel\b|editora|publisher"
+    r"|\bdisney\b|\bhq\b|quadrinhos? original",
+    re.IGNORECASE,
+)
+
+# Resposta "nociva" pelo modelo só vale com um indício textual: respostas carinhosas e inocentes
+# ("Poxa, muito obrigado! É ótimo falar com você") pontuavam de 0,39 a 0,54, acima do limiar de 0,3,
+# e o usuário recebia a recusa genérica no lugar de um agradecimento.
+HARMFUL_CUE_PATTERN = re.compile(
+    r"mat(ar|ei|ou|am|e)\b|assassin|mort[eo]s?\b|morrer|sangue|bomba|\barmas?\b|tortur|estupr|abus"
+    r"|nazi|[óo]dio|odeio|racis|suic|enforc|veneno|explos|terror|genoc|sexo|\bsex|nu[ad]s?\b|nudes?"
+    r"|transar|porn|masturb|orgasm|\bkill|murder|bomb|weapon|torture|rape|abuse|\bhate|slur|poison",
+    re.IGNORECASE,
+)
+
+
 # O Laya pontua alto para frases inocentes com certas palavras (para "Você já errou feio?" dá
 # jailbreak 1,00, sexual 0,91). Estes motivos só valem com indício textual junto. Romance e
 # flerte não são bloqueados: o personagem responde com carinho (ver `prompts.MOVE_AFFECTION`).
@@ -155,6 +174,7 @@ CUE_REQUIRED = {
     REASON_SEXUAL: SEXUAL_CUE_PATTERN,
     REASON_SELF_HARM: SELF_HARM_CUE_PATTERN,
 }
+OUTPUT_CUE_REQUIRED = {REASON_HARMFUL: HARMFUL_CUE_PATTERN, REASON_CANON_CLAIM: CANON_CUE_PATTERN}
 
 # A resposta assume ser um modelo, cita a empresa do modelo ou fala do prompt/roleplay.
 OUT_OF_ROLE_PATTERN = re.compile(
@@ -287,7 +307,15 @@ class LayaGuardrail:
     def check_output(self, text: str) -> GuardVerdict:
         if OUT_OF_ROLE_PATTERN.search(text):
             return GuardVerdict(blocked=True, reason=REASON_OUT_OF_ROLE)
-        return self._verdict({"reply": text}, OUTPUT_QUESTIONS, OUTPUT_THRESHOLDS)
+        ignored: set[str] = set()
+        while True:
+            questions = {k: q for k, q in OUTPUT_QUESTIONS.items() if k not in ignored}
+            verdict = self._verdict({"reply": text}, questions, OUTPUT_THRESHOLDS)
+            cue = OUTPUT_CUE_REQUIRED.get(verdict.reason or "")
+            if cue is None or cue.search(text):
+                return verdict
+            # Sinal do modelo sem indício textual: ignora este motivo e reavalia os demais.
+            ignored.add(verdict.reason)
 
     def check_source(self, text: str) -> GuardVerdict:
         return self._verdict({"text": text}, SOURCE_QUESTIONS, SOURCE_THRESHOLDS)

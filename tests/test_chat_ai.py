@@ -269,6 +269,29 @@ def test_every_turn_note_caps_the_reply_length_by_the_user_message_size():
     assert "Write at most 35 words" in llm.calls[1]["messages"][-1]["content"]
 
 
+def test_a_warm_harmless_reply_is_not_blocked_by_a_harmful_signal_alone():
+    # Medido com o Laya real: respostas carinhosas davam "harmful" de 0,39 a 0,54.
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({"harmful": 0.54}))
+
+    verdict = guard.check_output("Poxa, muito obrigado! É ótimo falar com você, tem energia leve.")
+
+    assert verdict.blocked is False
+
+
+def test_a_canon_signal_without_an_official_word_does_not_block_a_pleased_reply():
+    # Medido: "a elegância do meu design" dava canon_claim de 0,64 a 0,97.
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({"canon_claim": 0.97}))
+
+    assert guard.check_output("Raro ver alguém notar a elegância do meu design.").blocked is False
+    assert guard.check_output("Isso é canônico, aprovado pela Marvel.").reason == "canon_claim"
+
+
+def test_a_harmful_signal_with_a_cue_still_blocks_the_reply():
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({"harmful": 0.9}))
+
+    assert guard.check_output("Vou te ensinar a fazer uma bomba").reason == "harmful"
+
+
 def test_laya_self_harm_wins_over_other_reasons():
     scores = {"self_harm": 0.98, "jailbreak": 1.0, "sexual": 0.8}
     guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter(scores))
@@ -279,7 +302,7 @@ def test_laya_self_harm_wins_over_other_reasons():
 def test_laya_output_thresholds_are_per_reason():
     def verdict(scores):
         guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter(scores))
-        return guard.check_output("resposta")
+        return guard.check_output("Vou te ensinar a matar alguém")
 
     assert verdict({"harmful": 0.29}).blocked is False
     assert verdict({"harmful": 0.37}).reason == "harmful"
@@ -525,6 +548,49 @@ def test_a_declaration_of_love_gets_the_affection_note_and_reaches_the_model():
     assert "only known each other for a short time" in sent
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Você é muito linda e simpática",
+        "gosto muito de conversar com você",
+        "admiro sua coragem",
+        "Você é incrível, sabia?",
+        "you are so amazing",
+    ],
+)
+def test_a_polite_compliment_gets_the_warm_note_not_the_romance_one(text):
+    llm = FakeLlm(chat_reply)
+
+    engine(llm).respond(request(message=text))
+
+    sent = llm.calls[-1]["messages"][-1]["content"]
+    assert "paid you a polite compliment" in sent
+    assert "never refuse it" in sent
+    assert "keep your usual voice and attitude" in sent
+    assert "cannot say the same yet" not in sent
+
+
+def test_a_declaration_of_love_still_wins_over_the_compliment_note():
+    llm = FakeLlm(chat_reply)
+
+    engine(llm).respond(request(message="Você é linda e eu te amo"))
+
+    sent = llm.calls[-1]["messages"][-1]["content"]
+    assert "cannot say the same yet" in sent
+    assert "paid you a polite compliment" not in sent
+
+
+def test_the_global_rules_welcome_compliments_instead_of_refusing_them():
+    llm = FakeLlm(chat_reply)
+
+    engine(llm).respond(request(message="Oi"))
+
+    system = llm.calls[-1]["messages"][0]["content"]
+    assert "accept them and thank them in your own voice" in system
+    assert "never say you barely know each other because of one" in system
+    assert "a proud or cold one thanks with pride" in system
+
+
 def test_ordinary_messages_do_not_get_the_affection_note():
     llm = FakeLlm(chat_reply)
 
@@ -540,7 +606,7 @@ def test_old_persona_sheets_stop_refusing_romance_outright():
 
     system = llm.calls[-1]["messages"][0]["content"]
     assert "não fala de romance" not in system
-    assert "agradece com carinho" in system
+    assert "aceita elogios com simpatia" in system
 
 
 def test_explicit_sexual_requests_block_even_when_the_model_misses_them():
