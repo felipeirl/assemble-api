@@ -24,7 +24,7 @@ def concrete(path: str) -> str:
 def test_every_v2_route_requires_firebase_token(client, container):
     routes = [r for r in protected_routes(container) if r[1].startswith("/v2/")]
 
-    assert len(routes) == 9
+    assert len(routes) == 11
     for method, path in routes:
         response = client.request(method, concrete(path), json={})
         assert response.status_code == 401, (method, path)

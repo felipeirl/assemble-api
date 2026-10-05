@@ -70,6 +70,17 @@ class CharacterReply(BaseModel):
     suggestions: list[str]
 
 
+class RegeneratedReply(BaseModel):
+    reply: Message
+    suggestions: list[str]
+
+
+class RewindRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    messageId: str = Field(min_length=1, max_length=100)
+
+
 class SendMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

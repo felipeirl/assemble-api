@@ -9,8 +9,8 @@ from typing import Any
 from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, ChatResult, character_context
 from app.ai.guardrail import GuardrailUnavailableError
 from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
-from app.ai.prompts import preview
-from app.api.schemas import CharacterReply, Message
+from app.ai.prompts import fallback_suggestions, preview
+from app.api.schemas import CharacterReply, Message, RegeneratedReply
 from app.clock import Clock
 from app.domain.enums import Author
 from app.errors import ApiError
@@ -21,7 +21,7 @@ from app.repositories import (
     MessageRepository,
     PersonaRepository,
 )
-from app.store.base import Increment
+from app.store.base import DELETE_FIELD, Increment
 
 STATUS_SENT = "sent"
 STATUS_BLOCKED = "blocked"
@@ -127,6 +127,108 @@ class ConversationService:
             raise ApiError("blocked_content") from exc
         return self._save_exchange(uid, connection_id, text, result, user_at, idempotency_key)
 
+    def regenerate(self, uid: str, connection_id: str, locale: str) -> RegeneratedReply:
+        """Gera outra resposta no lugar da última do personagem (mesma mensagem, texto novo)."""
+        character = self._open_connection(uid, connection_id)
+        visible = [
+            (message_id, doc)
+            for message_id, doc in self._messages.recent(
+                uid, connection_id, self._history_limit + 2
+            )
+            if not doc.get("hidden")
+        ]
+        if not visible or visible[-1][1].get("author") != Author.CHARACTER.value:
+            raise ApiError("nothing_to_regenerate")
+        last_id, last_doc = visible[-1]
+        earlier = visible[:-1]
+        if not earlier:
+            mode, text, history_docs = "opener", "", []
+        elif earlier[-1][1].get("author") == Author.USER.value and earlier[-1][1].get("text"):
+            mode, text, history_docs = "reply", earlier[-1][1]["text"], earlier[:-1]
+        else:
+            raise ApiError("nothing_to_regenerate")
+        self._hit_rate_limit(uid)
+
+        request = ChatRequest(
+            request_id=str(uuid.uuid4()),
+            mode=mode,
+            locale=locale,
+            character=character_context(connection_id, character, locale),
+            persona=self._personas.get(connection_id) or {},
+            history=self._history_from(history_docs),
+            message=text,
+        )
+        try:
+            with provider_errors_as_api_errors():
+                result = self._engine().respond(request)
+        except BlockedInputError as exc:
+            raise ApiError("blocked_content") from exc
+
+        now = self._clock.now()
+        self._messages.update(
+            uid,
+            connection_id,
+            last_id,
+            {
+                "text": result.reply,
+                "blocked": result.blocked,
+                "blockReason": result.block_reason or DELETE_FIELD,
+                "model": result.model,
+                "promptVersion": result.prompt_version,
+                "regeneratedAt": now,
+            },
+        )
+        self._matches.update(
+            uid,
+            connection_id,
+            {"lastMessagePreview": preview(result.reply), "suggestions": result.suggestions},
+        )
+        updated = {**last_doc, "text": result.reply, "blocked": result.blocked}
+        return RegeneratedReply(
+            reply=to_message(last_id, connection_id, updated), suggestions=result.suggestions
+        )
+
+    def rewind(self, uid: str, connection_id: str, message_id: str, locale: str) -> None:
+        """Volta a conversa até uma resposta do personagem: apaga tudo o que veio depois."""
+        character = self._open_connection(uid, connection_id)
+        docs = self._messages.all_in_order(uid, connection_id)
+        position = next((i for i, (found, _) in enumerate(docs) if found == message_id), None)
+        if position is None:
+            raise ApiError("not_found")
+        target = docs[position][1]
+        if target.get("author") != Author.CHARACTER.value or target.get("hidden"):
+            raise ApiError("invalid_request")
+        for removed_id, _ in docs[position + 1 :]:
+            self._messages.delete(uid, connection_id, removed_id)
+        kept = docs[: position + 1]
+        sent = sum(
+            1 for _, doc in kept if doc.get("author") == Author.USER.value and doc.get("replyId")
+        )
+        self._matches.update(
+            uid,
+            connection_id,
+            {
+                "lastMessageAt": target["createdAt"],
+                "lastMessagePreview": preview(target.get("text", "")),
+                "suggestions": fallback_suggestions(character, locale),
+                "userMessageCount": sent,
+            },
+        )
+
+    def _open_connection(self, uid: str, connection_id: str) -> dict[str, Any]:
+        match = self._matches.get(uid, connection_id)
+        if match is None or match.get("hidden"):
+            raise ApiError("not_found")
+        character = self._characters.get(connection_id)
+        if character is None:
+            raise ApiError("not_found")
+        return character
+
+    def _hit_rate_limit(self, uid: str) -> None:
+        retry_after = self._limiter.hit(uid)
+        if retry_after is not None:
+            raise ApiError("rate_limited", headers={"Retry-After": str(retry_after)})
+
     def _save_exchange(
         self,
         uid: str,
@@ -218,8 +320,12 @@ class ConversationService:
         )
 
     def _history(self, uid: str, connection_id: str) -> list[dict[str, str]]:
+        return self._history_from(self._messages.recent(uid, connection_id, self._history_limit))
+
+    @staticmethod
+    def _history_from(docs: list) -> list[dict[str, str]]:
         history = []
-        for _, doc in self._messages.recent(uid, connection_id, self._history_limit):
+        for _, doc in docs:
             if not doc.get("text") or doc.get("hidden"):
                 continue
             role = "user" if doc.get("author") == Author.USER.value else "character"

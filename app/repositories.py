@@ -133,6 +133,15 @@ class MessageRepository:
             messages_path(uid, character_id), filters=(("idempotencyKey", "==", key),)
         )
 
+    def update(self, uid: str, character_id: str, message_id: str, data: dict[str, Any]) -> None:
+        self._store.update(f"{messages_path(uid, character_id)}/{message_id}", data)
+
+    def delete(self, uid: str, character_id: str, message_id: str) -> None:
+        self._store.delete(f"{messages_path(uid, character_id)}/{message_id}")
+
+    def all_in_order(self, uid: str, character_id: str) -> list[Document]:
+        return self._store.query(messages_path(uid, character_id), order_by="createdAt")
+
     def hide_all(self, uid: str, character_id: str) -> None:
         for message_id, _ in self._store.query(messages_path(uid, character_id)):
             self._store.update(f"{messages_path(uid, character_id)}/{message_id}", {"hidden": True})

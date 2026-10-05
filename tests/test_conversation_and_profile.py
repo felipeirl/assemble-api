@@ -348,3 +348,154 @@ def test_stats_count_connections_messages_seen_and_teams(client, connected):
         "charactersSeen": 3,
         "distinctTeams": 2,
     }
+
+
+# --- regenerar e voltar a conversa -------------------------------------------------------
+
+
+def talk(client, clock, text):
+    """Envia com o relógio avançando antes e depois: a ordem por createdAt fica estável."""
+    clock.current += timedelta(seconds=30)
+    reply = send(client, text)
+    clock.current += timedelta(seconds=30)
+    return reply
+
+
+def regenerate(client, connection="storm"):
+    return client.post(f"/v2/connections/{connection}/messages/regenerate", headers=HEADERS)
+
+
+def rewind(client, message_id, connection="storm"):
+    return client.post(
+        f"/v2/connections/{connection}/messages/rewind",
+        json={"messageId": message_id},
+        headers=HEADERS,
+    )
+
+
+def message_ids(container, connection="storm"):
+    docs = container.store.query(f"users/{UID}/matches/{connection}/messages", order_by="createdAt")
+    return [message_id for message_id, _ in docs]
+
+
+def test_regenerate_replaces_the_last_reply_in_place(client, connected, clock):
+    first = talk(client, clock, "Oi, tudo bem?").json()
+    before = message_ids(connected)
+
+    response = regenerate(client)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"]["id"] == first["reply"]["id"]
+    assert body["reply"]["author"] == "CHARACTER"
+    assert message_ids(connected) == before
+    stored = connected.store.get(f"users/{UID}/matches/storm/messages/{body['reply']['id']}")
+    assert stored["text"] == body["reply"]["text"]
+    assert "regeneratedAt" in stored
+    assert len(body["suggestions"]) == 3
+
+
+def test_regenerate_asks_the_model_for_the_same_user_message(client, connected, clock):
+    talk(client, clock, "Qual é o seu maior sonho?")
+    connected.llm.calls.clear()
+
+    regenerate(client)
+
+    messages_sent = connected.llm.calls[-1]["messages"]
+    assert messages_sent[-1] == {"role": "user", "content": "Qual é o seu maior sonho?"}
+    assert [m["role"] for m in messages_sent].count("assistant") == 1  # só a fala de abertura
+
+
+def test_regenerate_the_opener_when_the_chat_has_only_that(client, connected, clock):
+    opener_ids = message_ids(connected)
+    assert len(opener_ids) == 1
+
+    response = regenerate(client)
+
+    assert response.status_code == 200
+    assert response.json()["reply"]["id"] == opener_ids[0]
+    assert connected.llm.calls[-1]["messages"][-1]["content"].startswith("The user and")
+
+
+def test_regenerate_does_not_count_as_a_new_user_message(client, connected, clock):
+    talk(client, clock, "Oi")
+    count_before = connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"]
+
+    regenerate(client)
+
+    assert connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"] == count_before
+
+
+def test_regenerate_without_a_character_reply_is_409(client, connected, clock):
+    talk(client, clock, "meu email é fulano@exemplo.com")  # recusada: fica só a mensagem do usuário
+
+    response = regenerate(client)
+
+    assert response.status_code == 409
+    assert response.json()["error"] == "nothing_to_regenerate"
+
+
+def test_regenerate_unknown_connection_is_404(client, connected, clock):
+    assert regenerate(client, connection="wolverine").status_code == 404
+
+
+def test_regenerate_provider_failure_keeps_the_old_reply(client, connected, clock):
+    reply = talk(client, clock, "Oi").json()["reply"]
+    connected.llm.fail = True
+
+    response = regenerate(client)
+
+    assert response.status_code == 503
+    stored = connected.store.get(f"users/{UID}/matches/storm/messages/{reply['id']}")
+    assert stored["text"] == reply["text"]
+
+
+def test_rewind_deletes_everything_after_the_chosen_reply(client, connected, clock):
+    first = talk(client, clock, "Primeira").json()
+    talk(client, clock, "Segunda")
+    talk(client, clock, "Terceira")
+
+    response = rewind(client, first["reply"]["id"])
+
+    assert response.status_code == 204
+    kept = message_ids(connected)
+    assert kept[-1] == first["reply"]["id"]
+    assert len(kept) == 3  # abertura, primeira pergunta e a resposta dela
+    match = connected.store.get(f"users/{UID}/matches/storm")
+    assert match["userMessageCount"] == 1
+    assert len(match["suggestions"]) == 3
+
+
+def test_rewind_to_the_opener_keeps_only_the_opener(client, connected, clock):
+    opener = message_ids(connected)[0]
+    talk(client, clock, "Oi")
+
+    assert rewind(client, opener).status_code == 204
+
+    assert message_ids(connected) == [opener]
+    assert connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"] == 0
+
+
+def test_rewind_only_to_a_character_message(client, connected, clock):
+    sent = talk(client, clock, "Oi").json()
+
+    response = rewind(client, sent["userMessage"]["id"])
+
+    assert response.status_code == 400
+    assert len(message_ids(connected)) == 3
+
+
+def test_rewind_unknown_message_is_404(client, connected, clock):
+    assert rewind(client, "m_inexistente").status_code == 404
+
+
+def test_rewound_messages_are_not_in_the_model_history(client, connected, clock):
+    first = talk(client, clock, "Primeira").json()
+    talk(client, clock, "Segunda pergunta apagada")
+    rewind(client, first["reply"]["id"])
+    connected.llm.calls.clear()
+
+    talk(client, clock, "Nova pergunta")
+
+    sent_texts = [m["content"] for m in connected.llm.calls[-1]["messages"]]
+    assert not any("Segunda pergunta apagada" in text for text in sent_texts)

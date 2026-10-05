@@ -154,6 +154,12 @@ Função pura em `app/domain/compatibility.py`, idêntica ao `CompatibilityCalcu
 
 Ao mudar a tabela, mude também no Android.
 
+## Regenerar e voltar a conversa
+
+- `POST /v2/connections/{id}/messages/regenerate`: gera outra resposta no lugar da última do personagem. A mensagem mantém o `id`, então quem escuta o Firestore vê o texto mudar no lugar. Responde `409 nothing_to_regenerate` se a última mensagem não é do personagem ou se a anterior foi recusada. Conta no limite de mensagens por hora, mas não em `userMessageCount`. Se só existe a fala de abertura, gera outra abertura.
+- `POST /v2/connections/{id}/messages/rewind` com `{"messageId": "..."}`: apaga tudo o que veio depois de uma resposta do personagem (a abertura vale) e responde `204`. Refaz `lastMessagePreview`, `userMessageCount` e as sugestões. Mensagem de usuário como alvo dá `400`, e id desconhecido dá `404`.
+- Editar a mensagem do usuário ficou para depois: deixaria a resposta seguinte órfã.
+
 ## Card do baralho
 
 Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quando existe), com até 140 caracteres e sem o título de seção do Comic Vine. Sem bio, o campo não vem.

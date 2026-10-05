@@ -12,6 +12,7 @@ STATUS_BY_CODE = {
     "not_found": 404,
     "nothing_to_undo": 409,
     "already_decided": 409,
+    "nothing_to_regenerate": 409,
     "blocked_content": 422,
     "rate_limited": 429,
     "provider_unavailable": 503,
@@ -37,6 +38,10 @@ MESSAGES = {
     "nothing_to_undo": {
         EN: "There is nothing to undo.",
         PT_BR: "Não há nada para desfazer.",
+    },
+    "nothing_to_regenerate": {
+        EN: "There is no character reply to regenerate.",
+        PT_BR: "Não há resposta do personagem para gerar de novo.",
     },
     "already_decided": {
         EN: "You have already decided on this character.",
