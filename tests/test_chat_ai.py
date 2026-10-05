@@ -59,7 +59,7 @@ def test_prompt_contains_rules_facts_persona_and_delimited_summary():
 
     system = llm.calls[0]["messages"][0]["content"]
     assert "never claim it is canon" in system
-    assert "CVV" in system
+    assert "self-harm" in system
     assert '"realName": "Ororo Munroe"' in system
     assert "<<<SOURCE\nOroro Munroe" in system
     assert '"voice": "calma, solene"' in system
