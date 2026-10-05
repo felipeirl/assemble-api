@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, BackgroundTasks, Response
 
 from app.api.schemas import (
     CharacterIdPath,
@@ -41,8 +41,12 @@ def send_message(
     key: IdempotencyKey,
     locale: Locale,
     container: ContainerDep,
+    background: BackgroundTasks,
 ) -> CharacterReply:
-    return container.conversation_service.send(uid, connection_id, body.text, key, locale)
+    reply = container.conversation_service.send(uid, connection_id, body.text, key, locale)
+    # O resumo da conversa é atualizado depois de responder: o usuário nunca espera por ele.
+    background.add_task(container.conversation_service.refresh_memory, uid, connection_id, locale)
+    return reply
 
 
 @router.post(

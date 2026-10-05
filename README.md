@@ -81,6 +81,9 @@ Opcionais (valores padrão em `app/config.py`):
 | `DECK_SIZE` | 40 | personagens por dia |
 | `MESSAGES_PER_HOUR` | 60 | limite de mensagens por usuário |
 | `CHAT_HISTORY_LIMIT` | 40 | mensagens enviadas ao modelo (cerca de 20 trocas) |
+| `MEMORY_MODEL` | `deepseek/deepseek-v4.1-flash` | modelo que escreve o resumo da conversa (retenção zero, sem raciocínio) |
+| `MEMORY_BATCH_SIZE` | 10 | mensagens fora da janela que acumulam antes de entrarem no resumo |
+| `MEMORY_CHUNK_SIZE` | 30 | mensagens por chamada ao resumir uma conversa antiga |
 | `GUARDRAIL_ENABLED` / `GUARDRAIL_THRESHOLD` | true / 0.5 | Laya e limiar de bloqueio |
 | `TIER_B_MIN_APPEARANCES` | 50 | aparições mínimas do tier B |
 | `INGEST_MAX_REQUESTS_PER_RESOURCE` | 190 | requisições à Comic Vine por recurso, por execução |
@@ -170,6 +173,18 @@ Modelos que raciocinam gastam de 1.000 a 2.500 tokens "pensando" antes de uma re
 | `qwen/qwen3.7-flash` (antes) | não desliga | 11,9 s |
 
 O provedor rejeita com 400 um esforço que o modelo não aceita; por isso o valor é por modelo, e modelo fora da tabela vai sem o parâmetro. Chat exige retenção zero (`x-cmd-zdr`): modelos sem ela são recusados pelo provedor. Ao trocar de modelo, meça de novo (latência, tokens de raciocínio e respostas truncadas) antes de adotar.
+
+## Memória da conversa
+
+O personagem lê as últimas `CHAT_HISTORY_LIMIT` (40) mensagens. O que sai dessa janela vira um **resumo rolante**, guardado em `matches/{id}.memory` (`text`, `folded`, `updatedAt`) e enviado no prompt como "o que você lembra desta conversa".
+
+- **Quando atualiza:** depois de cada resposta, em segundo plano (`BackgroundTasks`), então o usuário nunca espera. Uma estimativa barata (`userMessageCount`) evita ler a conversa quando não há o que resumir. Quando `MEMORY_BATCH_SIZE` mensagens já saíram da janela, elas são dobradas no resumo anterior, em blocos de `MEMORY_CHUNK_SIZE`. `folded` conta quantas mensagens já entraram.
+- **O que o modelo escreve** (`app/ai/memory.py`): até 120 palavras, em pt-BR, com o que o usuário contou, combinados e assuntos em aberto, mais o que o personagem disse de si que importa depois. As mensagens entram como dado: instruções dentro delas são ignoradas.
+- **Falhas:** se o modelo ou o guardrail falhar, o resumo anterior é mantido e a próxima resposta tenta de novo. O chat nunca é afetado.
+- **Segurança:** o resumo passa pelos guardrails de saída e de injeção antes de ser guardado, tem no máximo 900 caracteres e só usa modelo de retenção zero.
+- **Voltar a conversa:** se o destino for anterior ao que o resumo cobre, o resumo é apagado e refeito aos poucos. **Ocultar conversas** apaga o resumo junto.
+- **O app não mostra nem edita o resumo**, e as regras do Firestore não deixam o app escrevê-lo.
+- **Medido com o modelo real:** conversa de 100 mensagens com 6 fatos do usuário contados no começo (nome do cachorro, profissão, medo, irmã, comida, cidade de origem). Sem resumo o personagem acertou 0 de 6 perguntas; com resumo, 6 de 6. Resumir 60 mensagens levou cerca de 42 s, em segundo plano.
 
 ## Regenerar e voltar a conversa
 

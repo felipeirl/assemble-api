@@ -1,5 +1,6 @@
 """Mensagens das conexões: fala de abertura do personagem e respostas (seção 10)."""
 
+import logging
 import threading
 import uuid
 from collections.abc import Iterator
@@ -10,6 +11,7 @@ from typing import Any
 from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, ChatResult, character_context
 from app.ai.guardrail import GuardrailUnavailableError
 from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
+from app.ai.memory import MemorySummarizer
 from app.ai.prompts import fallback_suggestions, preview
 from app.api.schemas import CharacterReply, Message, RegeneratedReply
 from app.clock import Clock
@@ -26,11 +28,22 @@ from app.repositories import (
 from app.store.base import DELETE_FIELD, Increment
 from app.timing import timed
 
+logger = logging.getLogger(__name__)
+
 STATUS_SENT = "sent"
 STATUS_BLOCKED = "blocked"
 PROVIDER_ERRORS = (LlmUnavailableError, GuardrailUnavailableError, InvalidModelOutputError)
 # Garante que a resposta fique depois da mensagem do usuário na ordenação por createdAt.
 REPLY_MIN_GAP = timedelta(milliseconds=1)
+
+
+def memorable(docs: list) -> list:
+    """Mensagens que entram no resumo: com texto e não ocultas (as bloqueadas não têm texto)."""
+    return [(i, doc) for i, doc in docs if doc.get("text") and not doc.get("hidden")]
+
+
+def memory_text(match: dict[str, Any] | None) -> str | None:
+    return ((match or {}).get("memory") or {}).get("text") or None
 
 
 def new_message_id() -> str:
@@ -58,6 +71,9 @@ class ConversationService:
         limiter: SlidingWindowLimiter,
         clock: Clock,
         history_limit: int,
+        memory: MemorySummarizer | None = None,
+        memory_batch: int = 10,
+        memory_chunk: int = 30,
     ) -> None:
         self._chat = chat
         self._personas = personas
@@ -68,6 +84,10 @@ class ConversationService:
         self._limiter = limiter
         self._clock = clock
         self._history_limit = history_limit
+        self._memory = memory
+        self._memory_batch = memory_batch
+        self._memory_chunk = memory_chunk
+        self._memory_running: set[tuple[str, str]] = set()
         # Uma Idempotency-Key por vez: o app repete o pedido quando estoura o tempo, e a repetição
         # não pode correr junto com o pedido original (a mensagem seria processada duas vezes).
         self._key_locks: dict[tuple[str, str, str], list[Any]] = {}
@@ -156,6 +176,7 @@ class ConversationService:
             persona=self._personas.get(connection_id) or {},
             history=self._history(uid, connection_id),
             message=text,
+            memory=memory_text(match),
         )
         try:
             with provider_errors_as_api_errors(), timed("resposta do chat (total)"):
@@ -197,6 +218,7 @@ class ConversationService:
             history=self._history_from(history_docs),
             message=text,
             looking_for=self._users.looking_for(uid) if mode == "opener" else None,
+            memory=memory_text(self._matches.get(uid, connection_id)),
         )
         try:
             with provider_errors_as_api_errors():
@@ -241,6 +263,9 @@ class ConversationService:
         for removed_id, _ in docs[position + 1 :]:
             self._messages.delete(uid, connection_id, removed_id)
         kept = docs[: position + 1]
+        match = self._matches.get(uid, connection_id) or {}
+        # Um resumo que cobre mensagens apagadas lembraria do que não aconteceu mais.
+        memory_stale = (match.get("memory") or {}).get("folded", 0) > len(memorable(kept))
         sent = sum(
             1 for _, doc in kept if doc.get("author") == Author.USER.value and doc.get("replyId")
         )
@@ -252,8 +277,62 @@ class ConversationService:
                 "lastMessagePreview": preview(target.get("text", "")),
                 "suggestions": fallback_suggestions(character, locale),
                 "userMessageCount": sent,
+                **({"memory": DELETE_FIELD} if memory_stale else {}),
             },
         )
+
+    def refresh_memory(self, uid: str, connection_id: str, locale: str) -> None:
+        """Dobra no resumo as mensagens que saíram da janela do histórico (roda em segundo plano).
+
+        Nunca levanta: se falhar, o chat segue como está e a próxima chamada tenta de novo.
+        """
+        if self._memory is None:
+            return
+        key = (uid, connection_id)
+        with self._key_locks_guard:
+            if key in self._memory_running:
+                return
+            self._memory_running.add(key)
+        try:
+            self._fold_into_memory(uid, connection_id, locale)
+        except (LlmUnavailableError, GuardrailUnavailableError, InvalidModelOutputError):
+            logger.warning("Resumo da conversa adiado: provedor indisponível.")
+        except Exception:
+            logger.exception("Resumo da conversa falhou.")
+        finally:
+            with self._key_locks_guard:
+                self._memory_running.discard(key)
+
+    def _fold_into_memory(self, uid: str, connection_id: str, locale: str) -> None:
+        match = self._matches.get(uid, connection_id)
+        if match is None or match.get("hidden") or self._memory is None:
+            return
+        stored = match.get("memory") or {}
+        folded = stored.get("folded", 0)
+        # Estimativa barata, sem ler a conversa: 2 mensagens por envio mais a abertura.
+        estimate = 2 * match.get("userMessageCount", 0) + 1 - self._history_limit - folded
+        if estimate < self._memory_batch:
+            return
+        character = self._characters.get(connection_id)
+        if character is None:
+            return
+        docs = self._messages.all_in_order(uid, connection_id)
+        older = memorable(docs[: max(0, len(docs) - self._history_limit)])
+        pending = older[folded:]
+        text = stored.get("text")
+        name = character_context(connection_id, character, locale)["name"]
+        while len(pending) >= self._memory_batch:
+            chunk, pending = pending[: self._memory_chunk], pending[self._memory_chunk :]
+            with timed("resumo da conversa"):
+                updated = self._memory.fold(text, self._history_from(chunk), name, locale)
+            if updated is None:
+                return
+            text, folded = updated, folded + len(chunk)
+            self._matches.update(
+                uid,
+                connection_id,
+                {"memory": {"text": text, "folded": folded, "updatedAt": self._clock.now()}},
+            )
 
     def _open_connection(self, uid: str, connection_id: str) -> dict[str, Any]:
         match = self._matches.get(uid, connection_id)

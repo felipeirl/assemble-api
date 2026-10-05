@@ -14,6 +14,7 @@ from app.repositories import (
     MessageRepository,
     UserRepository,
 )
+from app.store.base import DELETE_FIELD
 
 if TYPE_CHECKING:
     from app.auth import TokenVerifier
@@ -55,7 +56,10 @@ class AccountService:
             if match.get("hidden"):
                 continue
             self._messages.hide_all(uid, character_id)
-            self._matches.update(uid, character_id, {"hidden": True, "hiddenAt": now})
+            # O resumo da conversa some junto com as mensagens.
+            self._matches.update(
+                uid, character_id, {"hidden": True, "hiddenAt": now, "memory": DELETE_FIELD}
+            )
 
     def deactivate(self, uid: str) -> datetime:
         now = self._clock.now()

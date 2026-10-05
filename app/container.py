@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import Depends, Request
 
 from app.ai.chat import ChatEngine
+from app.ai.memory import MemorySummarizer
 from app.ai.personas import PersonaService
 from app.ai.translations import TranslationService
 from app.catalog.catalog import CharacterCatalog
@@ -66,6 +67,15 @@ class Container:
         )
 
     @cached_property
+    def memory_summarizer(self) -> MemorySummarizer | None:
+        model = self.settings.memory_model
+        if self.llm is None or self.guardrail is None or not model:
+            return None
+        return MemorySummarizer(
+            self.llm, self.guardrail, model, self.settings.chat_reasoning_efforts
+        )
+
+    @cached_property
     def conversation_service(self) -> ConversationService:
         return ConversationService(
             chat=self.chat_engine,
@@ -79,6 +89,9 @@ class Container:
             ),
             clock=self.clock,
             history_limit=self.settings.chat_history_limit,
+            memory=self.memory_summarizer,
+            memory_batch=self.settings.memory_batch_size,
+            memory_chunk=self.settings.memory_chunk_size,
         )
 
     @cached_property

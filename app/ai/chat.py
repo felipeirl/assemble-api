@@ -9,6 +9,7 @@ from typing import Any, Literal
 from app.ai import prompts
 from app.ai.guardrail import REASON_SELF_HARM, Guardrail
 from app.ai.llm import InvalidModelOutputError, LlmClient, parse_json_object
+from app.ai.memory import memory_block
 from app.catalog.names import display_name
 from app.catalog.text import truncate
 from app.timing import timed
@@ -44,6 +45,8 @@ class ChatRequest:
     message: str = ""
     # "O que você procura numa conversa?", escrito pelo usuário; só usado na abertura.
     looking_for: str | None = None
+    # Resumo do que saiu da janela de histórico (app/ai/memory.py).
+    memory: str | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,7 @@ class ChatEngine:
                 prompts.system_prompt(request.locale),
                 prompts.character_block(facts, summary),
                 prompts.persona_block(request.persona),
+                *([memory_block(request.memory)] if request.memory else []),
             ]
         )
         messages = [{"role": "system", "content": system}]

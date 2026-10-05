@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     guardrail_enabled: bool = True
     guardrail_threshold: float = 0.5
     chat_history_limit: int = 40
+    # Resumo rolante do que saiu da janela de histórico (retenção zero, como o chat).
+    memory_model: str | None = "deepseek/deepseek-v4.1-flash"
+    memory_batch_size: int = 10
+    memory_chunk_size: int = 30
     messages_per_hour: int = 60
 
     # Decisão de match (seção 7) — valores iniciais, a calibrar
@@ -53,7 +57,7 @@ class Settings(BaseSettings):
     match_weight_chance: float = 0.1
     match_cutoff: float = 0.55
 
-    @field_validator("chat_model", "chat_fallback_model")
+    @field_validator("chat_model", "chat_fallback_model", "memory_model")
     @classmethod
     def _chat_model_must_not_train_on_messages(cls, value: str | None) -> str | None:
         """Modelos "contributor" treinam com o que recebem: proibidos no chat (mensagens de
