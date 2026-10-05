@@ -14,6 +14,7 @@ from app.clock import Clock
 from app.config import Settings
 from app.domain.match import MatchWeights
 from app.jobs import JobRunner
+from app.media import CloudinaryPhotos
 from app.rate_limit import SlidingWindowLimiter
 from app.repositories import (
     AccessLogRepository,
@@ -95,6 +96,18 @@ class Container:
         )
 
     @cached_property
+    def photos(self) -> CloudinaryPhotos | None:
+        s = self.settings
+        if not (s.cloudinary_cloud_name and s.cloudinary_api_key and s.cloudinary_api_secret):
+            return None
+        return CloudinaryPhotos(
+            s.cloudinary_cloud_name,
+            s.cloudinary_api_key,
+            s.cloudinary_api_secret.get_secret_value(),
+            self.clock,
+        )
+
+    @cached_property
     def account_service(self) -> AccountService:
         return AccountService(
             users=self.users,
@@ -103,6 +116,7 @@ class Container:
             access_logs=AccessLogRepository(self.store),
             auth_admin=self.token_verifier,
             clock=self.clock,
+            photos=self.photos,
         )
 
     @cached_property

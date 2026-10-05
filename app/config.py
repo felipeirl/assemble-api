@@ -22,6 +22,10 @@ class Settings(BaseSettings):
         "deepseek/deepseek-v4.1-flash": "off",
     }
     jobs_key: SecretStr | None = None
+    # Foto do perfil no Cloudinary; sem as três, o app guarda a foto no Firestore, como antes.
+    cloudinary_cloud_name: str | None = None
+    cloudinary_api_key: str | None = None
+    cloudinary_api_secret: SecretStr | None = None
     default_timezone: str = "America/Sao_Paulo"
 
     # Ingestão (seção 9.1)

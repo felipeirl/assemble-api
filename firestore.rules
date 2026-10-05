@@ -85,6 +85,12 @@ service cloud.firestore {
         && c.version is string && c.version.size() <= 20;
     }
 
+    // JPEG de 256 px em Base64 (uns 30 mil caracteres) ou URL de imagem do Cloudinary.
+    function validAvatarPhoto(photo) {
+      return photo is string && photo.size() <= 120000
+        && (photo.matches('https://res[.]cloudinary[.]com/.*') || !photo.matches('(?i)https?://.*'));
+    }
+
     // Valida só os campos presentes no documento resultante.
     function validProfile(d) {
       return (!('displayName' in d) || (d.displayName is string && d.displayName.size() <= 60))
@@ -92,8 +98,8 @@ service cloud.firestore {
         && (!('lookingFor' in d) || (d.lookingFor is string && d.lookingFor.size() <= 140))
         && (!('avatarPreset' in d)
               || (d.avatarPreset is int && d.avatarPreset >= 0 && d.avatarPreset <= 5))
-        // Foto: JPEG de 256 px em Base64 (uns 30 mil caracteres); o perfil só é visto pelo dono.
-        && (!('avatarPhoto' in d) || (d.avatarPhoto is string && d.avatarPhoto.size() <= 120000))
+        // Foto: URL do Cloudinary (res.cloudinary.com) ou o JPEG em Base64 de antes.
+        && (!('avatarPhoto' in d) || validAvatarPhoto(d.avatarPhoto))
         && (!('createdAt' in d) || d.createdAt is timestamp)
         && (!('onboardingCompletedAt' in d) || d.onboardingCompletedAt is timestamp)
         && (!('profileStyle' in d) || validProfileStyle(d.profileStyle))

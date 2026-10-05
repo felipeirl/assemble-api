@@ -93,6 +93,17 @@ describe("users/{uid}", () => {
     await assertFails(updateDoc(doc(db(), `users/${UID}`), { avatarPreset: 6 }));
   });
 
+  test("avatarPhoto aceita Base64 e URL do Cloudinary, e recusa outras URLs", async () => {
+    await seed(`users/${UID}`, VALID_PROFILE);
+    const ref = doc(db(), `users/${UID}`);
+    await assertSucceeds(updateDoc(ref, { avatarPhoto: "/9j/4AAQSkZJRg==" }));
+    await assertSucceeds(
+      updateDoc(ref, { avatarPhoto: "https://res.cloudinary.com/demo/image/upload/v1/assemble/avatars/ana.jpg" }),
+    );
+    await assertFails(updateDoc(ref, { avatarPhoto: "https://evil.example.com/a.jpg" }));
+    await assertFails(updateDoc(ref, { avatarPhoto: "http://res.cloudinary.com/demo/a.jpg" }));
+  });
+
   test("lookingFor aceita até 140 caracteres de texto", async () => {
     await seed(`users/${UID}`, VALID_PROFILE);
     const ref = doc(db(), `users/${UID}`);

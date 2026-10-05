@@ -84,6 +84,7 @@ Opcionais (valores padrão em `app/config.py`):
 | `MEMORY_MODEL` | `deepseek/deepseek-v4.1-flash` | modelo que escreve o resumo da conversa (retenção zero, sem raciocínio) |
 | `MEMORY_BATCH_SIZE` | 10 | mensagens fora da janela que acumulam antes de entrarem no resumo |
 | `MEMORY_CHUNK_SIZE` | 30 | mensagens por chamada ao resumir uma conversa antiga |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | vazio | foto do perfil no Cloudinary; sem as três, o app guarda a foto no Firestore |
 | `GUARDRAIL_ENABLED` / `GUARDRAIL_THRESHOLD` | true / 0.5 | Laya e limiar de bloqueio |
 | `TIER_B_MIN_APPEARANCES` | 50 | aparições mínimas do tier B |
 | `INGEST_MAX_REQUESTS_PER_RESOURCE` | 190 | requisições à Comic Vine por recurso, por execução |
@@ -185,6 +186,16 @@ O personagem lê as últimas `CHAT_HISTORY_LIMIT` (40) mensagens. O que sai dess
 - **Voltar a conversa:** se o destino for anterior ao que o resumo cobre, o resumo é apagado e refeito aos poucos. **Ocultar conversas** apaga o resumo junto.
 - **O app não mostra nem edita o resumo**, e as regras do Firestore não deixam o app escrevê-lo.
 - **Medido com o modelo real:** conversa de 100 mensagens com 6 fatos do usuário contados no começo (nome do cachorro, profissão, medo, irmã, comida, cidade de origem). Sem resumo o personagem acertou 0 de 6 perguntas; com resumo, 6 de 6. Resumir 60 mensagens levou cerca de 42 s, em segundo plano.
+
+## Foto do perfil (Cloudinary)
+
+Com `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET` no `.env`, a foto do perfil vai para o Cloudinary em vez de ficar em Base64 no documento do usuário.
+
+- `POST /v2/me/photo/signature` devolve `{uploadUrl, fields}`: a URL de envio e os campos do formulário já **assinados** (`app/media.py`). O app envia o JPEG direto ao Cloudinary; o segredo da API nunca sai do servidor.
+- A assinatura fixa `public_id` (o uid do usuário), a pasta `assemble/avatars`, `overwrite` e a transformação (recorte quadrado de 256 px em JPEG, centrado no rosto). O app não consegue enviar outra coisa nem trocar a foto de outra pessoa.
+- O app grava a URL `https://res.cloudinary.com/...` em `users/{uid}.avatarPhoto`; as regras do Firestore só aceitam essa origem (ou o Base64 de antes).
+- Sem as variáveis, a rota responde `503 provider_unavailable` e o app salva a foto em Base64, como antes. Falha de rede no envio tem o mesmo efeito: salvar o perfil nunca falha por causa da foto.
+- Na exclusão definitiva da conta (job `purge`), a foto é apagada do Cloudinary; se o Cloudinary falhar, a exclusão segue.
 
 ## Regenerar e voltar a conversa
 

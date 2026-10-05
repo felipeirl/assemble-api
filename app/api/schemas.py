@@ -190,5 +190,12 @@ class UserStats(BaseModel):
     distinctTeams: int
 
 
+class PhotoSignature(BaseModel):
+    """Envio da foto direto ao Cloudinary: URL e campos do formulário (já assinados)."""
+
+    uploadUrl: str
+    fields: dict[str, str]
+
+
 class DeactivationResult(BaseModel):
     purgeAt: datetime

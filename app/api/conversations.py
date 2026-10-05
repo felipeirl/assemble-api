@@ -4,6 +4,7 @@ from app.api.schemas import (
     CharacterIdPath,
     CharacterReply,
     CharacterView,
+    PhotoSignature,
     RegeneratedReply,
     RewindRequest,
     SendMessageRequest,
@@ -11,6 +12,7 @@ from app.api.schemas import (
 )
 from app.auth import ActiveUid
 from app.container import ContainerDep
+from app.errors import ApiError
 from app.request_context import IdempotencyKey, Locale
 
 NO_CONTENT = 204
@@ -70,6 +72,14 @@ def rewind_conversation(
 ) -> Response:
     container.conversation_service.rewind(uid, connection_id, body.messageId, locale)
     return Response(status_code=NO_CONTENT)
+
+
+@router.post("/me/photo/signature", response_model=PhotoSignature)
+def photo_signature(uid: ActiveUid, container: ContainerDep) -> PhotoSignature:
+    if container.photos is None:
+        raise ApiError("provider_unavailable")
+    upload_url, fields = container.photos.upload_signature(uid)
+    return PhotoSignature(uploadUrl=upload_url, fields=fields)
 
 
 @router.get("/me/stats", response_model=UserStats)

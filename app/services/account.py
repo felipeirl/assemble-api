@@ -18,6 +18,7 @@ from app.store.base import DELETE_FIELD
 
 if TYPE_CHECKING:
     from app.auth import TokenVerifier
+    from app.media import CloudinaryPhotos
 
 GRACE_PERIOD = timedelta(days=30)
 
@@ -41,6 +42,7 @@ class AccountService:
         access_logs: AccessLogRepository,
         auth_admin: "TokenVerifier",
         clock: Clock,
+        photos: "CloudinaryPhotos | None" = None,
     ) -> None:
         self._users = users
         self._matches = matches
@@ -48,6 +50,7 @@ class AccountService:
         self._access_logs = access_logs
         self._auth_admin = auth_admin
         self._clock = clock
+        self._photos = photos
 
     def hide_chats(self, uid: str) -> None:
         """ "Delete chats": some na hora; a remoção física acontece após a carência."""
@@ -86,6 +89,8 @@ class AccountService:
                 logger.exception("Falha ao remover %s do Firebase Auth.", uid)
                 report.accounts_failed.append(uid)
                 continue
+            if self._photos is not None:
+                self._photos.destroy(uid)
             self._users.delete_everything(uid)
             report.accounts_deleted.append(uid)
         for uid in self._users.all_ids():
