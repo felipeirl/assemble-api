@@ -3,7 +3,7 @@ rules_version = '2';
 // Assemble — regras do Firestore.
 // O backend usa o Admin SDK e ignora estas regras; elas valem só para o app.
 // Leitura: o dono lê o próprio users/{uid} e subcoleções.
-// Escrita do app: perfil, preferências e aiConsent em users/{uid};
+// Escrita do app: perfil (com a foto), preferências e aiConsent em users/{uid};
 // lastReadAt e profileUnlockSeenAt em matches/*. Todo o resto é negado.
 
 service cloud.firestore {
@@ -20,7 +20,7 @@ service cloud.firestore {
     }
 
     function profileFields() {
-      return ['displayName', 'bio', 'avatarPreset', 'profileStyle', 'createdAt',
+      return ['displayName', 'bio', 'avatarPreset', 'avatarPhoto', 'profileStyle', 'createdAt',
               'onboardingCompletedAt', 'preferences', 'aiConsent'];
     }
 
@@ -91,6 +91,8 @@ service cloud.firestore {
         && (!('bio' in d) || (d.bio is string && d.bio.size() <= 500))
         && (!('avatarPreset' in d)
               || (d.avatarPreset is int && d.avatarPreset >= 0 && d.avatarPreset <= 5))
+        // Foto: JPEG de 256 px em Base64 (uns 30 mil caracteres); o perfil só é visto pelo dono.
+        && (!('avatarPhoto' in d) || (d.avatarPhoto is string && d.avatarPhoto.size() <= 120000))
         && (!('createdAt' in d) || d.createdAt is timestamp)
         && (!('onboardingCompletedAt' in d) || d.onboardingCompletedAt is timestamp)
         && (!('profileStyle' in d) || validProfileStyle(d.profileStyle))
