@@ -11,7 +11,7 @@ dependencies = [
     "httpx>=0.28.1",
     "litellm>=1.103.2",
     "tzdata>=2026.4",
-    "laya>=0.3.23",
+    "laya>=0.3.28",
     "torch>=2.14.1",
 ]
 
