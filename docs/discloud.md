@@ -8,6 +8,7 @@ Exige o plano Platinum ou superior (sites só sobem a partir dele). Com o torch 
 
 - A Discloud não lista o Python 3.12 entre as versões, e a API exige 3.12. Por isso o `BUILD` instala o `uv`, que baixa o Python 3.12 e instala exatamente o que está no `uv.lock` (o torch só para CPU incluído).
 - O `START` sobe o uvicorn em `0.0.0.0:8080`, porta e host que o proxy da Discloud exige.
+- A Discloud procura o módulo `main` na raiz (`main:app`); o `main.py` da raiz só reexporta o `app` de `app/main.py` e também roda com `python main.py`.
 - Os pesos do Laya (cerca de 650 MB) vêm do Hugging Face no primeiro boot. O log mostra "Laya aquecido" quando o servidor está pronto.
 
 ## 1. Subdomínio
