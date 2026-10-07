@@ -4,7 +4,12 @@ import time
 import pytest
 
 from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, character_context, parse_reply
-from app.ai.guardrail import GuardrailUnavailableError, LayaGuardrail
+from app.ai.guardrail import (
+    GuardrailUnavailableError,
+    LayaGuardrail,
+    cpu_quota,
+    threads_for_quota,
+)
 from app.ai.llm import InvalidModelOutputError
 from app.ai.prompts import PROMPT_VERSION, SAFE_REPLY
 from tests.conftest import auth_header
@@ -856,3 +861,27 @@ def test_warm_up_logs_the_laya_capacity(caplog, monkeypatch):
         guard.warm_up()
 
     assert any("4 threads do torch" in record.getMessage() for record in caplog.records)
+
+
+def test_cpu_quota_reads_cgroup_v2(tmp_path):
+    (tmp_path / "cpu.max").write_text("391000 100000\n")
+
+    assert cpu_quota(tmp_path) == 3.91
+    assert threads_for_quota(3.91) == 3
+
+
+def test_cpu_quota_reads_cgroup_v1(tmp_path):
+    (tmp_path / "cpu").mkdir()
+    (tmp_path / "cpu" / "cpu.cfs_quota_us").write_text("200000")
+    (tmp_path / "cpu" / "cpu.cfs_period_us").write_text("100000")
+
+    assert cpu_quota(tmp_path) == 2.0
+
+
+def test_cpu_quota_without_a_limit_keeps_the_torch_default(tmp_path):
+    (tmp_path / "cpu.max").write_text("max 100000\n")
+
+    assert cpu_quota(tmp_path) is None
+    assert cpu_quota(tmp_path / "nao-existe") is None
+    assert threads_for_quota(None) is None
+    assert threads_for_quota(0.5) == 1

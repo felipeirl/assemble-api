@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import math
 import os
 import re
 import threading
@@ -9,6 +10,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from app.priority_lock import PriorityLock
@@ -293,6 +295,47 @@ class Guardrail(Protocol):
     def affinity(self, user_profile: str, persona: str) -> float: ...
 
 
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+
+
+def cpu_quota(root: Path = CGROUP_ROOT) -> float | None:
+    """CPUs que o contêiner pode usar (cgroup v2 ou v1); None sem limite ou fora de contêiner.
+
+    `os.cpu_count()` vê a máquina inteira (32 núcleos na Discloud), não a cota do plano (~4).
+    """
+    try:
+        quota, period = (root / "cpu.max").read_text().split()
+        return int(quota) / int(period) if quota != "max" else None
+    except (OSError, ValueError):
+        pass
+    try:
+        quota_us = int((root / "cpu" / "cpu.cfs_quota_us").read_text())
+        period_us = int((root / "cpu" / "cpu.cfs_period_us").read_text())
+    except (OSError, ValueError):
+        return None
+    return quota_us / period_us if quota_us > 0 else None
+
+
+def threads_for_quota(quota: float | None) -> int | None:
+    """Threads do torch para a cota; None deixa o padrão do torch (uma por núcleo físico)."""
+    return max(1, math.floor(quota)) if quota is not None else None
+
+
+def configure_torch_threads() -> None:
+    """Ajusta as threads do torch à cota de CPU, a menos que OMP_NUM_THREADS diga outra coisa.
+
+    Com uma thread por núcleo da máquina numa cota de ~4 CPUs, as threads disputam a cota: cada
+    pergunta ao Laya levava 959 ms com 16 threads e 334 ms com 2.
+    """
+    if os.environ.get("OMP_NUM_THREADS"):
+        return
+    threads = threads_for_quota(cpu_quota())
+    if threads is not None:
+        import torch
+
+        torch.set_num_threads(threads)
+
+
 def torch_threads() -> int:
     import torch
 
@@ -302,6 +345,7 @@ def torch_threads() -> int:
 def build_laya_router() -> Any:
     from laya import Router
 
+    configure_torch_threads()
     return Router(default=LAYA_MODEL, device="cpu", max_loaded=1)
 
 
@@ -344,7 +388,9 @@ class LayaGuardrail:
         logger.info("Laya aquecido em %.0f s; o servidor já responde sem demora.", loaded - start)
         # A capacidade do servidor depende disto: cada mensagem do chat faz 8 perguntas ao Laya.
         logger.info(
-            "Capacidade do Laya: %s núcleos, %d threads do torch, %.0f ms por pergunta.",
+            "Capacidade do Laya: cota de %s CPUs (%s núcleos na máquina), %d threads do torch, "
+            "%.0f ms por pergunta.",
+            f"{quota:.2f}" if (quota := cpu_quota()) is not None else "sem limite",
             os.cpu_count(),
             torch_threads(),
             (time.perf_counter() - loaded) * 1000 / len(OUTPUT_QUESTIONS),
