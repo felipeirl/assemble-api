@@ -1,3 +1,4 @@
+import hashlib
 import json
 import threading
 import time
@@ -31,14 +32,15 @@ class FirebaseTokenVerifier:
     def __init__(self, app: firebase_admin.App, now: Callable[[], float] = time.time) -> None:
         self._app = app
         self._now = now
-        # token -> (identidade, válido até, em segundos Unix)
+        # sha256 do token -> (identidade, válido até, em segundos Unix): o token não fica guardado.
         self._verified: dict[str, tuple[Identity, float]] = {}
         self._verified_guard = threading.Lock()
 
     def verify(self, token: str) -> Identity:
         now = self._now()
+        digest = hashlib.sha256(token.encode()).hexdigest()
         with self._verified_guard:
-            cached = self._verified.get(token)
+            cached = self._verified.get(digest)
         if cached is not None and now < cached[1]:
             return cached[0]
         decoded = self._verify_remote(token)
@@ -47,7 +49,7 @@ class FirebaseTokenVerifier:
         with self._verified_guard:
             if len(self._verified) >= VERIFIED_TOKEN_CACHE_LIMIT:
                 self._verified = {k: v for k, v in self._verified.items() if now < v[1]}
-            self._verified[token] = (identity, valid_until)
+            self._verified[digest] = (identity, valid_until)
         return identity
 
     def forget_user(self, uid: str) -> None:

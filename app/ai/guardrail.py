@@ -1,10 +1,11 @@
 """Guardrail com o modelo de decisão Laya (local, multilíngue): entrada, saída e texto da fonte."""
 
-import functools
+import hashlib
 import logging
 import re
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -263,9 +264,9 @@ class LayaGuardrail:
         # Uma inferência por vez: cada uma já usa todos os núcleos, e várias juntas disputam a CPU
         # até cada uma levar minutos (12 afinidades simultâneas passaram de 150 s cada).
         self._inference_lock = threading.Lock()
-        self._cached_source_verdict = functools.lru_cache(maxsize=SOURCE_VERDICT_CACHE_SIZE)(
-            self._source_verdict
-        )
+        # sha256 do texto -> veredito: a bio do usuário não fica na memória do processo.
+        self._source_verdicts: OrderedDict[str, GuardVerdict] = OrderedDict()
+        self._source_verdicts_guard = threading.Lock()
 
     def warm_up(self) -> None:
         """Carrega o Laya e faz uma pergunta de verdade: os pesos só vêm na primeira inferência.
@@ -321,10 +322,18 @@ class LayaGuardrail:
             ignored.add(verdict.reason)
 
     def check_source(self, text: str) -> GuardVerdict:
-        return self._cached_source_verdict(text)
-
-    def _source_verdict(self, text: str) -> GuardVerdict:
-        return self._verdict({"text": text}, SOURCE_QUESTIONS, SOURCE_THRESHOLDS)
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        with self._source_verdicts_guard:
+            cached = self._source_verdicts.get(digest)
+            if cached is not None:
+                self._source_verdicts.move_to_end(digest)
+                return cached
+        verdict = self._verdict({"text": text}, SOURCE_QUESTIONS, SOURCE_THRESHOLDS)
+        with self._source_verdicts_guard:
+            self._source_verdicts[digest] = verdict
+            if len(self._source_verdicts) > SOURCE_VERDICT_CACHE_SIZE:
+                self._source_verdicts.popitem(last=False)
+        return verdict
 
     def affinity(self, user_profile: str, persona: str) -> float:
         answers = self._ask(
