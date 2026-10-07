@@ -2,6 +2,37 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). As versões contam como um odômetro: cada release é uma grande adição e o número sobe de um em um (`0.0.8`, `0.0.9`, `0.1.0`, `0.1.1`...). Ao chegar em 9, avança a casa seguinte. Correções pequenas entram na release seguinte.
 
+## [0.1.3] - 2026-10-07
+
+**Exige o app 0.1.3 ou mais novo:** o envio de mensagem, "gerar outra resposta" e o Assemble mudaram de contrato.
+
+### Adicionado
+- Deploy na Discloud (`https://assemble.discloud.dev`), com deploy automático a cada push na `main` (veja `docs/discloud.md`).
+- Filas em segundo plano para o trabalho pesado: a resposta do chat, "gerar outra resposta" e o Assemble respondem `202` na hora, e o resultado chega ao app pelo Firestore. O proxy da Discloud corta pedidos em cerca de 30 s, e essas rotas passavam disso; era o erro de "tentar de novo" no chat e o card que voltava ao baralho.
+- Estado gravado nas mensagens (`pending`, `sent`, `blocked`, `failed`) e nas decisões de Assemble (`pending`, `matched`, `not_matched`, `failed`). A mensagem pendente é gravada sem o texto: ele só vai para o Firestore depois do filtro de entrada.
+- Retomada: repetir com a mesma `Idempotency-Key` retoma o que falhou ou se perdeu num reinício do servidor; Assembles pendentes ou com falha também são retomados ao abrir o baralho (até 3 tentativas).
+- Encaminhamento para relatos de violência sexual: resposta fixa de acolhimento com o Ligue 180, o Disque 100 e o 190, sem chamar o modelo e sem guardar o texto, como já acontecia com autoagressão e o CVV.
+- `GET /ready`: responde `503` enquanto o Laya carrega e mostra o tamanho das filas. O log registra as filas ocupadas a cada minuto e, no boot, a velocidade do Laya na máquina.
+- Limite de 60 Assembles por hora por usuário.
+- Script que cria uma conta de demonstração com o e-mail já confirmado.
+- As regras do Firestore aceitam as recompensas das conquistas v2 e o título do perfil.
+
+### Alterado
+- O Laya faz uma inferência por vez, com prioridade para os filtros do chat (várias em paralelo levavam mais de 150 s cada), e cada checagem faz uma inferência só.
+- As respostas do chat são geradas por 6 consumidores em paralelo; cada conversa tem no máximo uma resposta na fila (`409 reply_pending`).
+- O token do Firebase verificado é reaproveitado por até 5 minutos, em vez de consultar o Google a cada pedido; os vereditos do Laya sobre a bio e o "o que procura" ficam em cache. Os dois caches guardam só o hash SHA-256.
+- O registro de acesso (Marco Civil) é gravado depois da resposta, inclusive quando a rota termina em erro.
+- O baralho lê as decisões do usuário uma vez só por abertura.
+- Um relato como "ele me forçou a fazer sexo" deixa de ser recusado como pedido sexual.
+- E-mail de verificação com o logo do Assemble e layout refinado.
+- Laya atualizado para 0.3.28.
+
+### Removido
+- O erro `422 blocked_content`: a recusa vem como `status = blocked` no Firestore.
+
+### Corrigido
+- Cache do Hugging Face dentro da pasta do projeto e `main.py` na raiz, para a API subir na Discloud.
+
 ## [0.1.2] - 2026-10-05
 
 ### Adicionado
