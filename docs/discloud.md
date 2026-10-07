@@ -7,8 +7,7 @@ Exige o plano Platinum ou superior (sites só sobem a partir dele). Com o torch 
 ## Como sobe
 
 - A Discloud não lista o Python 3.12 entre as versões, e a API exige 3.12. Por isso o `BUILD` instala o `uv`, que baixa o Python 3.12 e instala exatamente o que está no `uv.lock` (o torch só para CPU incluído).
-- O `START` sobe o uvicorn em `0.0.0.0:8080`, porta e host que o proxy da Discloud exige.
-- A Discloud procura o módulo `main` na raiz (`main:app`); o `main.py` da raiz só reexporta o `app` de `app/main.py` e também roda com `python main.py`.
+- Na prática, a Discloud ignora o `START` e roda o próprio `uvicorn main:app --host 0.0.0.0`, com o módulo `main` na raiz. O `main.py` da raiz reexporta o `app` de `app/main.py`, aponta o cache do Hugging Face para a pasta do projeto e também roda com `python main.py`.
 - Os pesos do Laya (cerca de 650 MB) vêm do Hugging Face no primeiro boot. O log mostra "Laya aquecido" quando o servidor está pronto.
 
 ## 1. Subdomínio
@@ -46,6 +45,9 @@ Deve responder `{"status":"ok"}`. Depois disso:
 - no GitHub da API, troque o secret `ASSEMBLE_API_URL` do workflow `Jobs` para o mesmo endereço.
 
 ## Se o deploy falhar
+
+- **Porta 8000 no log:** a Discloud roda o próprio `uvicorn main:app` e ignora o `START`. Se o site não responder, cadastre `UVICORN_PORT=8080` nas variáveis de ambiente (o uvicorn lê a porta dessa variável).
+- **`Permission denied: '/.cache'`:** o `main.py` da raiz já manda o cache do Hugging Face para a pasta do projeto; se aparecer, o app não subiu pelo `main.py`.
 
 - **Falta de `requirements.txt`:** a documentação da Discloud não diz se um app Python sobe sem ele. Se o log reclamar, gere um a partir do lock (`uv export --no-dev --no-hashes -o requirements.txt`) e deixe o `BUILD` como está.
 - **Memória:** se o processo morrer ao carregar o Laya, aumente o `RAM`.

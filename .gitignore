@@ -47,3 +47,6 @@ server.out.log
 # Documentação interna (especificações de trabalho); docs/*.md são públicos
 docs/internal/
 *.bundle
+
+# Cache do Hugging Face quando a API sobe pelo main.py da raiz (Discloud)
+.cache/
