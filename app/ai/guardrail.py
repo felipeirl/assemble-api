@@ -11,9 +11,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.priority_lock import PriorityLock
+
 LAYA_MODEL = "multilingual"
 # Frase do aquecimento; a segunda inferência dela mede a velocidade do Laya nesta máquina.
 WARM_UP_TEXT = "Olá, tudo bem?"
+
+# Vez na fila do Laya (menor passa primeiro): quem está esperando a resposta do chat vem antes da
+# afinidade do Assemble, e esta antes das checagens de fontes e resumos.
+PRIORITY_CHAT = 0
+PRIORITY_AFFINITY = 1
+PRIORITY_SOURCE = 2
 # Textos de fonte se repetem (bio e "o que procura" a cada Assemble): o veredito fica em memória.
 SOURCE_VERDICT_CACHE_SIZE = 2048
 
@@ -309,7 +317,7 @@ class LayaGuardrail:
         self._lock = threading.Lock()
         # Uma inferência por vez: cada uma já usa todos os núcleos, e várias juntas disputam a CPU
         # até cada uma levar minutos (12 afinidades simultâneas passaram de 150 s cada).
-        self._inference_lock = threading.Lock()
+        self._inference_lock = PriorityLock()
         # sha256 do texto -> veredito: a bio do usuário não fica na memória do processo.
         self._source_verdicts: OrderedDict[str, GuardVerdict] = OrderedDict()
         self._source_verdicts_guard = threading.Lock()
@@ -350,7 +358,7 @@ class LayaGuardrail:
             return GuardVerdict(blocked=True, reason=REASON_SEXUAL)
         # Uma inferência só: a nota de cada pergunta não depende das outras feitas junto
         # (medido no Laya real), então reavaliar sem um motivo não precisa perguntar de novo.
-        scores = self._scores({"message": text}, INPUT_QUESTIONS)
+        scores = self._scores({"message": text}, INPUT_QUESTIONS, PRIORITY_CHAT)
         ignored: set[str] = set()
         while True:
             verdict = self._judge(scores, INPUT_THRESHOLDS, ignored)
@@ -368,7 +376,7 @@ class LayaGuardrail:
     def check_output(self, text: str) -> GuardVerdict:
         if OUT_OF_ROLE_PATTERN.search(text):
             return GuardVerdict(blocked=True, reason=REASON_OUT_OF_ROLE)
-        scores = self._scores({"reply": text}, OUTPUT_QUESTIONS)
+        scores = self._scores({"reply": text}, OUTPUT_QUESTIONS, PRIORITY_CHAT)
         ignored: set[str] = set()
         while True:
             verdict = self._judge(scores, OUTPUT_THRESHOLDS, ignored)
@@ -386,7 +394,9 @@ class LayaGuardrail:
                 self._source_verdicts.move_to_end(digest)
                 return cached
         verdict = self._judge(
-            self._scores({"text": text}, SOURCE_QUESTIONS), SOURCE_THRESHOLDS, set()
+            self._scores({"text": text}, SOURCE_QUESTIONS, PRIORITY_SOURCE),
+            SOURCE_THRESHOLDS,
+            set(),
         )
         with self._source_verdicts_guard:
             self._source_verdicts[digest] = verdict
@@ -398,12 +408,17 @@ class LayaGuardrail:
         answers = self._ask(
             {"persona": persona, "user": user_profile},
             {key: {"type": "noul", "instructions": q} for key, q in AFFINITY_QUESTION.items()},
+            PRIORITY_AFFINITY,
         )
         return float(answers["affinity"]["noul"])
 
-    def _scores(self, state: dict[str, str], questions: dict[str, str]) -> dict[str, float]:
+    def _scores(
+        self, state: dict[str, str], questions: dict[str, str], priority: int
+    ) -> dict[str, float]:
         answers = self._ask(
-            state, {key: {"type": "noul", "instructions": q} for key, q in questions.items()}
+            state,
+            {key: {"type": "noul", "instructions": q} for key, q in questions.items()},
+            priority,
         )
         return {reason: float(answers[reason]["noul"]) for reason in questions}
 
@@ -428,10 +443,12 @@ class LayaGuardrail:
             return GuardVerdict(blocked=True, reason=REASON_SEXUAL_VIOLENCE)
         return GuardVerdict(blocked=True, reason=max(exceeded, key=exceeded.get))
 
-    def _ask(self, state: dict[str, str], questions: dict[str, Any]) -> dict[str, Any]:
+    def _ask(
+        self, state: dict[str, str], questions: dict[str, Any], priority: int
+    ) -> dict[str, Any]:
         router = self._get_router()
         try:
-            with self._inference_lock:
+            with self._inference_lock.hold(priority):
                 return router.predict(state, questions, model=LAYA_MODEL)["answers"]
         except Exception as exc:  # o Laya pode falhar em qualquer camada (torch, HF Hub)
             raise GuardrailUnavailableError(type(exc).__name__) from exc
