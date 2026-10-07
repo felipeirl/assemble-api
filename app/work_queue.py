@@ -1,7 +1,8 @@
-"""Fila de trabalho em segundo plano com um único consumidor.
+"""Fila de trabalho em segundo plano, com um número fixo de consumidores.
 
-O trabalho pesado (modelo e Laya) roda fora da requisição, uma tarefa de cada vez: o proxy da
-Discloud corta a conexão em cerca de 30 s, e várias inferências do Laya juntas disputam a CPU.
+O trabalho pesado (modelo e Laya) roda fora da requisição: o proxy da Discloud corta a conexão em
+cerca de 30 s. Vários consumidores deixam as chamadas ao modelo, que é remoto, correrem em
+paralelo; o Laya continua uma inferência por vez pelo lock dele.
 """
 
 import logging
@@ -15,11 +16,15 @@ Task = Callable[[], None]
 
 
 class WorkQueue:
-    def __init__(self, name: str, capacity: int) -> None:
+    def __init__(self, name: str, capacity: int, workers: int = 1) -> None:
         self._name = name
         self._tasks: queue.Queue[Task] = queue.Queue(maxsize=capacity)
-        self._thread = threading.Thread(target=self._run, name=name, daemon=True)
-        self._thread.start()
+        self._threads = [
+            threading.Thread(target=self._run, name=f"{name}-{index}", daemon=True)
+            for index in range(workers)
+        ]
+        for thread in self._threads:
+            thread.start()
 
     def submit(self, task: Task) -> bool:
         """Põe a tarefa na fila; devolve False se a fila estiver cheia."""
@@ -31,7 +36,7 @@ class WorkQueue:
         return True
 
     def wait_idle(self) -> None:
-        """Espera a fila esvaziar e a tarefa em andamento terminar."""
+        """Espera a fila esvaziar e as tarefas em andamento terminarem."""
         self._tasks.join()
 
     def _run(self) -> None:

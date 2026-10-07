@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 HTTP_TIMEOUT_SECONDS = 30.0
 MESSAGE_LIMIT_WINDOW = timedelta(hours=1)
+ASSEMBLE_LIMIT_WINDOW = timedelta(hours=1)
 
 
 @dataclass
@@ -106,8 +107,10 @@ class Container:
 
     @cached_property
     def reply_queue(self) -> WorkQueue:
-        """Respostas do chat, uma por vez, fora da requisição."""
-        return WorkQueue("chat-replies", self.settings.chat_queue_capacity)
+        """Respostas do chat fora da requisição: o modelo em paralelo, o Laya um por vez."""
+        return WorkQueue(
+            "chat-replies", self.settings.chat_queue_capacity, self.settings.chat_reply_workers
+        )
 
     @cached_property
     def memory_queue(self) -> WorkQueue:
@@ -263,6 +266,9 @@ class Container:
             personas=self.personas,
             guardrail=self.guardrail,
             clock=self.clock,
+            assemble_limiter=SlidingWindowLimiter(
+                settings.assembles_per_hour, ASSEMBLE_LIMIT_WINDOW, self.clock
+            ),
             weights=MatchWeights(
                 compatibility=settings.match_weight_compatibility,
                 affinity=settings.match_weight_affinity,

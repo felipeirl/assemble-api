@@ -62,8 +62,8 @@ MESSAGES = {
         PT_BR: "Esta mensagem não pode ser enviada.",
     },
     "rate_limited": {
-        EN: "Too many messages. Try again later.",
-        PT_BR: "Muitas mensagens. Tente novamente mais tarde.",
+        EN: "Too many requests in a row. Try again later.",
+        PT_BR: "Muitos pedidos seguidos. Tente novamente mais tarde.",
     },
     "provider_unavailable": {
         EN: "The service is temporarily unavailable. Try again.",

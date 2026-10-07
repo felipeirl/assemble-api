@@ -340,3 +340,37 @@ def test_select_deck_favors_more_compatible_characters_on_average():
         means.append(sum(scores[c] for c in chosen) / len(chosen))
 
     assert sum(means) / len(means) > pool_mean + 8
+
+
+def test_deck_reads_the_decisions_once(client, seeded, monkeypatch):
+    decide(client, "rocket", "PASS")
+    store = seeded.store
+    original = store.query
+    collections = []
+
+    def spy(collection, filters=(), *args, **kwargs):
+        if not filters:  # leitura completa; a contagem do dia usa filtro
+            collections.append(collection)
+        return original(collection, filters, *args, **kwargs)
+
+    monkeypatch.setattr(store, "query", spy)
+
+    cards = deck(client)["cards"]
+
+    assert collections.count(f"users/{UID}/decisions") == 1
+    assert "rocket" not in {card["characterId"] for card in cards}
+
+
+def test_assembles_are_rate_limited_per_user(client, seeded):
+    seeded.settings.assembles_per_hour = 1
+    seeded.__dict__.pop("decision_service", None)
+    force_match(seeded, False)
+
+    assert decide(client, "storm", "ASSEMBLE").status_code == 200
+    response = decide(client, "iron-man", "ASSEMBLE")
+
+    assert response.status_code == 429
+    assert response.json()["error"] == "rate_limited"
+    assert int(response.headers["Retry-After"]) > 0
+    assert decide(client, "rocket", "PASS").status_code == 204
+    assert decide(client, "storm", "ASSEMBLE").status_code == 409  # já decidido, sem gastar cota

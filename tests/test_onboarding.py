@@ -5,6 +5,7 @@ import pytest
 from app.domain import reaction, taste
 from app.domain.enums import Origin, Style, Team
 from app.domain.models import CharacterTraits
+from app.repositories import DecisionRepository
 from tests.conftest import auth_header
 from tests.factories import seed_characters, seed_user
 
@@ -105,14 +106,15 @@ def test_signals_teach_the_taste_and_a_decision_replaces_the_signal(client, seed
     signal(client, "storm", True)
     signal(client, "rocket", False)
     service = seeded.deck_service
+    decisions = DecisionRepository(seeded.store)
 
-    learned = service._taste(UID)
+    learned = service._taste(UID, decisions.choices(UID))
     assert learned.decisions == 2
     assert learned.weights["origin:Mutant"] > 0
 
     client.post("/v2/decisions", json={"characterId": "storm", "choice": "PASS"}, headers=HEADERS)
 
-    learned = service._taste(UID)
+    learned = service._taste(UID, decisions.choices(UID))
     assert learned.decisions == 2
     assert learned.weights["origin:Mutant"] < 0
 

@@ -72,10 +72,11 @@ class DeckService:
     def get_deck(self, uid: str, tz: ZoneInfo, locale: str) -> Deck:
         date, deck = self.ensure_deck(uid, tz)
         prefs = self._users.preferences(uid)
-        decided = self._decisions.decided_ids(uid)
+        # Uma leitura das decisões serve para tirar as decididas e para aprender o gosto.
+        choices = self._decisions.choices(uid)
         decided_today = self._decisions.count_on_date(uid, date)
-        pool, traits = self._candidates(prefs, decided)
-        taste = self._taste(uid)
+        pool, traits = self._candidates(prefs, set(choices))
+        taste = self._taste(uid, choices)
         learned = {
             character_id: taste_rules.affinity(taste, found)
             for character_id, found in traits.items()
@@ -148,7 +149,7 @@ class DeckService:
             )
         return candidates, traits
 
-    def _taste(self, uid: str) -> taste_rules.Taste:
+    def _taste(self, uid: str, choices: dict[str, str]) -> taste_rules.Taste:
         """Gosto aprendido: Assemble (ou Curti na rodada de reação) a favor, Pass contra.
 
         A decisão de um personagem vale no lugar do sinal da rodada, sem contar duas vezes.
@@ -157,7 +158,7 @@ class DeckService:
         liked_by_character.update(
             {
                 character_id: choice == Choice.ASSEMBLE.value
-                for character_id, choice in self._decisions.choices(uid).items()
+                for character_id, choice in choices.items()
             }
         )
         history = []

@@ -202,7 +202,7 @@ Formato: `{ "error": "codigo", "message": "texto no idioma do Accept-Language" }
 | 409 | `nothing_to_undo`, `nothing_to_regenerate`, `already_decided` | Undo sem Pass; nada para regenerar; decisão repetida sem a mesma `Idempotency-Key` | some com o botão / usa a decisão gravada |
 | 409 | `reply_pending` | mensagem nova antes da resposta da anterior | espera a resposta chegar pelo Firestore |
 | 422 | `blocked_content` | regenerar a partir de uma mensagem recusada pela Laya (no envio, a recusa vem como `status = blocked` no Firestore) | balão com aviso, sem resposta do personagem |
-| 429 | `rate_limited` | limite de mensagens (ex.: 60/hora) | aviso com o tempo de espera (`Retry-After`) |
+| 429 | `rate_limited` | limite de mensagens ou de Assembles (60/hora cada) | aviso com o tempo de espera (`Retry-After`) |
 | 503 | `provider_unavailable` | modelo/guardrail fora; no envio de mensagem, fila de respostas cheia (com `Retry-After`) | "Try again" na mensagem |
 
 Conteúdo recusado na **saída** do modelo não é erro: vem uma resposta segura, em personagem, com `blocked = true` gravado.

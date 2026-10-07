@@ -64,8 +64,12 @@ class Settings(BaseSettings):
     memory_batch_size: int = 10
     memory_chunk_size: int = 30
     messages_per_hour: int = 60
+    assembles_per_hour: int = 60
     # Respostas esperando na fila (uma por conversa); cheia, o envio responde 503 com Retry-After.
-    chat_queue_capacity: int = 50
+    chat_queue_capacity: int = 100
+    # Respostas geradas ao mesmo tempo: chamadas ao modelo em paralelo (cuidado com o limite de
+    # taxa do provedor). O Laya segue uma inferência por vez.
+    chat_reply_workers: int = 6
     memory_queue_capacity: int = 20
 
     # Decisão de match (seção 7) — valores iniciais, a calibrar

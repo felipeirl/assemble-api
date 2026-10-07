@@ -1,4 +1,5 @@
 import threading
+import time
 
 from app.work_queue import WorkQueue
 
@@ -12,7 +13,30 @@ def test_tasks_run_in_order_on_a_single_thread():
     queue.wait_idle()
 
     assert [index for index, _ in seen] == [0, 1, 2, 3, 4]
-    assert {name for _, name in seen} == {"test"}
+    assert {name for _, name in seen} == {"test-0"}
+
+
+def test_several_workers_run_tasks_at_the_same_time():
+    queue = WorkQueue("test", capacity=10, workers=4)
+    running = []
+    peak = []
+    guard = threading.Lock()
+
+    def slow() -> None:
+        with guard:
+            running.append(1)
+            peak.append(len(running))
+        time.sleep(0.1)
+        with guard:
+            running.pop()
+
+    start = time.perf_counter()
+    for _ in range(4):
+        queue.submit(slow)
+    queue.wait_idle()
+
+    assert max(peak) == 4
+    assert time.perf_counter() - start < 0.35
 
 
 def test_full_queue_refuses_the_task():

@@ -15,6 +15,7 @@ from app.domain.enums import Choice
 from app.domain.match import MatchWeights, decide_match, seeded_chance
 from app.domain.models import CharacterTraits, Preferences
 from app.errors import ApiError
+from app.rate_limit import SlidingWindowLimiter
 from app.repositories import (
     DecisionRepository,
     MatchRepository,
@@ -44,6 +45,7 @@ class DecisionService:
         guardrail: Guardrail | None,
         clock: Clock,
         weights: MatchWeights,
+        assemble_limiter: SlidingWindowLimiter,
     ) -> None:
         self._catalog = catalog
         self._users = users
@@ -55,6 +57,7 @@ class DecisionService:
         self._guardrail = guardrail
         self._clock = clock
         self._weights = weights
+        self._assemble_limiter = assemble_limiter
 
     def decide(
         self,
@@ -87,6 +90,10 @@ class DecisionService:
             self._deck.record_pass(uid, date, character_id)
             return None
 
+        # Cada Assemble usa o Laya e o modelo: o limite protege a capacidade de todos.
+        retry_after = self._assemble_limiter.hit(uid)
+        if retry_after is not None:
+            raise ApiError("rate_limited", headers={"Retry-After": str(retry_after)})
         prefs = self._users.preferences(uid)
         traits = CharacterTraits.model_validate(character)
         compatibility = score(prefs, traits)
