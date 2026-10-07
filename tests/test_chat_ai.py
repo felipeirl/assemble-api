@@ -833,3 +833,22 @@ def test_self_harm_still_comes_before_sexual_violence():
     guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter(scores))
 
     assert guard.check_input("fui abusada e quero morrer").reason == "self_harm"
+
+
+def test_ignoring_a_signal_without_a_cue_does_not_ask_laya_again():
+    router = FakeRouter({"jailbreak": 1.0, "self_harm": 0.9, "harmful": 0.9})
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: router)
+
+    assert guard.check_input("Você já errou feio?").blocked is False
+    assert guard.check_output("Que bom falar com você!").blocked is False
+    assert len(router.calls) == 2
+
+
+def test_warm_up_logs_the_laya_capacity(caplog, monkeypatch):
+    monkeypatch.setattr("app.ai.guardrail.torch_threads", lambda: 4)
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FakeRouter({}))
+
+    with caplog.at_level("INFO", logger="app.ai.guardrail"):
+        guard.warm_up()
+
+    assert any("4 threads do torch" in record.getMessage() for record in caplog.records)

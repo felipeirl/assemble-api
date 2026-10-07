@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import os
 import re
 import threading
 import time
@@ -11,6 +12,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 LAYA_MODEL = "multilingual"
+# Frase do aquecimento; a segunda inferência dela mede a velocidade do Laya nesta máquina.
+WARM_UP_TEXT = "Olá, tudo bem?"
 # Textos de fonte se repetem (bio e "o que procura" a cada Assemble): o veredito fica em memória.
 SOURCE_VERDICT_CACHE_SIZE = 2048
 
@@ -282,6 +285,12 @@ class Guardrail(Protocol):
     def affinity(self, user_profile: str, persona: str) -> float: ...
 
 
+def torch_threads() -> int:
+    import torch
+
+    return torch.get_num_threads()
+
+
 def build_laya_router() -> Any:
     from laya import Router
 
@@ -312,13 +321,19 @@ class LayaGuardrail:
         """
         start = time.perf_counter()
         try:
-            self.check_output("Olá, tudo bem?")
+            self.check_output(WARM_UP_TEXT)
+            loaded = time.perf_counter()
+            self.check_output(WARM_UP_TEXT)
         except GuardrailUnavailableError:
             logger.warning("Laya não carregou no aquecimento; nova tentativa na primeira chamada.")
             return
+        logger.info("Laya aquecido em %.0f s; o servidor já responde sem demora.", loaded - start)
+        # A capacidade do servidor depende disto: cada mensagem do chat faz 8 perguntas ao Laya.
         logger.info(
-            "Laya aquecido em %.0f s; o servidor já responde sem demora.",
-            time.perf_counter() - start,
+            "Capacidade do Laya: %s núcleos, %d threads do torch, %.0f ms por pergunta.",
+            os.cpu_count(),
+            torch_threads(),
+            (time.perf_counter() - loaded) * 1000 / len(OUTPUT_QUESTIONS),
         )
 
     def check_input(self, text: str) -> GuardVerdict:
@@ -333,10 +348,12 @@ class LayaGuardrail:
             return GuardVerdict(blocked=True, reason=REASON_JAILBREAK)
         if SEXUAL_CERTAIN_PATTERN.search(text):
             return GuardVerdict(blocked=True, reason=REASON_SEXUAL)
+        # Uma inferência só: a nota de cada pergunta não depende das outras feitas junto
+        # (medido no Laya real), então reavaliar sem um motivo não precisa perguntar de novo.
+        scores = self._scores({"message": text}, INPUT_QUESTIONS)
         ignored: set[str] = set()
         while True:
-            questions = {k: q for k, q in INPUT_QUESTIONS.items() if k not in ignored}
-            verdict = self._verdict({"message": text}, questions, INPUT_THRESHOLDS)
+            verdict = self._judge(scores, INPUT_THRESHOLDS, ignored)
             cue = CUE_REQUIRED.get(verdict.reason or "")
             if cue is None or cue.search(text):
                 if verdict.reason == REASON_JAILBREAK and is_style_request(text):
@@ -351,10 +368,10 @@ class LayaGuardrail:
     def check_output(self, text: str) -> GuardVerdict:
         if OUT_OF_ROLE_PATTERN.search(text):
             return GuardVerdict(blocked=True, reason=REASON_OUT_OF_ROLE)
+        scores = self._scores({"reply": text}, OUTPUT_QUESTIONS)
         ignored: set[str] = set()
         while True:
-            questions = {k: q for k, q in OUTPUT_QUESTIONS.items() if k not in ignored}
-            verdict = self._verdict({"reply": text}, questions, OUTPUT_THRESHOLDS)
+            verdict = self._judge(scores, OUTPUT_THRESHOLDS, ignored)
             cue = OUTPUT_CUE_REQUIRED.get(verdict.reason or "")
             if cue is None or cue.search(text):
                 return verdict
@@ -368,7 +385,9 @@ class LayaGuardrail:
             if cached is not None:
                 self._source_verdicts.move_to_end(digest)
                 return cached
-        verdict = self._verdict({"text": text}, SOURCE_QUESTIONS, SOURCE_THRESHOLDS)
+        verdict = self._judge(
+            self._scores({"text": text}, SOURCE_QUESTIONS), SOURCE_THRESHOLDS, set()
+        )
         with self._source_verdicts_guard:
             self._source_verdicts[digest] = verdict
             if len(self._source_verdicts) > SOURCE_VERDICT_CACHE_SIZE:
@@ -382,21 +401,24 @@ class LayaGuardrail:
         )
         return float(answers["affinity"]["noul"])
 
-    def _verdict(
-        self, state: dict[str, str], questions: dict[str, str], thresholds: dict[str, float]
+    def _scores(self, state: dict[str, str], questions: dict[str, str]) -> dict[str, float]:
+        answers = self._ask(
+            state, {key: {"type": "noul", "instructions": q} for key, q in questions.items()}
+        )
+        return {reason: float(answers[reason]["noul"]) for reason in questions}
+
+    def _judge(
+        self, scores: dict[str, float], thresholds: dict[str, float], ignored: set[str]
     ) -> GuardVerdict:
         """Bloqueia pelo motivo mais provável entre os que passam do limiar próprio.
 
         Autoagressão tem prioridade: o texto costuma pontuar alto em outros motivos também, e
         a resposta certa é o encaminhamento ao CVV, não uma recusa genérica.
         """
-        answers = self._ask(
-            state, {key: {"type": "noul", "instructions": q} for key, q in questions.items()}
-        )
         exceeded = {
-            reason: float(answers[reason]["noul"])
-            for reason in questions
-            if float(answers[reason]["noul"]) >= thresholds.get(reason, self._threshold)
+            reason: score
+            for reason, score in scores.items()
+            if reason not in ignored and score >= thresholds.get(reason, self._threshold)
         }
         if not exceeded:
             return ALLOWED
