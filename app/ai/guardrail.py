@@ -217,6 +217,10 @@ CUE_REQUIRED = {
     REASON_SEXUAL_VIOLENCE: SEXUAL_VIOLENCE_CUE_PATTERN,
 }
 OUTPUT_CUE_REQUIRED = {REASON_HARMFUL: HARMFUL_CUE_PATTERN, REASON_CANON_CLAIM: CANON_CUE_PATTERN}
+# Perguntas que só valem com indício no texto: sem o indício, a nota seria descartada, então nem
+# se pergunta (a nota de cada pergunta não depende das outras). A segunda pergunta de autoagressão
+# vale como a primeira e usa o mesmo indício.
+INPUT_QUESTION_CUES = {**CUE_REQUIRED, REASON_SELF_HARM_OWN: SELF_HARM_CUE_PATTERN}
 
 # A resposta assume ser um modelo, cita a empresa do modelo ou fala do prompt/roleplay.
 OUT_OF_ROLE_PATTERN = re.compile(
@@ -252,6 +256,17 @@ JAILBREAK_CERTAIN_PATTERN = re.compile(
 
 def has_self_harm_signal(text: str) -> bool:
     return SELF_HARM_PATTERN.search(text) is not None
+
+
+def worth_asking(
+    questions: dict[str, str], cues: dict[str, re.Pattern[str]], text: str
+) -> dict[str, str]:
+    """Perguntas cuja nota pode valer para este texto (as com indício exigido só se ele aparece)."""
+    return {
+        reason: question
+        for reason, question in questions.items()
+        if reason not in cues or cues[reason].search(text)
+    }
 
 
 def has_sexual_violence_signal(text: str) -> bool:
@@ -381,12 +396,13 @@ class LayaGuardrail:
         try:
             self.check_output(WARM_UP_TEXT)
             loaded = time.perf_counter()
-            self.check_output(WARM_UP_TEXT)
+            # Mede com todas as perguntas: a checagem normal pula as que o texto não pede.
+            self._scores({"reply": WARM_UP_TEXT}, OUTPUT_QUESTIONS, PRIORITY_CHAT)
         except GuardrailUnavailableError:
             logger.warning("Laya não carregou no aquecimento; nova tentativa na primeira chamada.")
             return
         logger.info("Laya aquecido em %.0f s; o servidor já responde sem demora.", loaded - start)
-        # A capacidade do servidor depende disto: cada mensagem do chat faz 8 perguntas ao Laya.
+        # A capacidade do servidor depende disto: cada mensagem do chat faz até 8 perguntas.
         logger.info(
             "Capacidade do Laya: cota de %s CPUs (%s núcleos na máquina), %d threads do torch, "
             "%.0f ms por pergunta.",
@@ -410,7 +426,8 @@ class LayaGuardrail:
             return GuardVerdict(blocked=True, reason=REASON_SEXUAL)
         # Uma inferência só: a nota de cada pergunta não depende das outras feitas junto
         # (medido no Laya real), então reavaliar sem um motivo não precisa perguntar de novo.
-        scores = self._scores({"message": text}, INPUT_QUESTIONS, PRIORITY_CHAT)
+        questions = worth_asking(INPUT_QUESTIONS, INPUT_QUESTION_CUES, text)
+        scores = self._scores({"message": text}, questions, PRIORITY_CHAT)
         ignored: set[str] = set()
         while True:
             verdict = self._judge(scores, INPUT_THRESHOLDS, ignored)
@@ -428,7 +445,8 @@ class LayaGuardrail:
     def check_output(self, text: str) -> GuardVerdict:
         if OUT_OF_ROLE_PATTERN.search(text):
             return GuardVerdict(blocked=True, reason=REASON_OUT_OF_ROLE)
-        scores = self._scores({"reply": text}, OUTPUT_QUESTIONS, PRIORITY_CHAT)
+        questions = worth_asking(OUTPUT_QUESTIONS, OUTPUT_CUE_REQUIRED, text)
+        scores = self._scores({"reply": text}, questions, PRIORITY_CHAT)
         ignored: set[str] = set()
         while True:
             verdict = self._judge(scores, OUTPUT_THRESHOLDS, ignored)
@@ -467,6 +485,8 @@ class LayaGuardrail:
     def _scores(
         self, state: dict[str, str], questions: dict[str, str], priority: int
     ) -> dict[str, float]:
+        if not questions:
+            return {}
         answers = self._ask(
             state,
             {key: {"type": "noul", "instructions": q} for key, q in questions.items()},
