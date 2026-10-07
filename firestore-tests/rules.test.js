@@ -131,6 +131,8 @@ describe("profileStyle", () => {
     "conexão em destaque que não é texto": { featuredConnections: [42] },
     "conquista desconhecida": { featuredBadges: ["Legend"] },
     "conquista repetida": { featuredBadges: ["TeamUp", "TeamUp"] },
+    "título desconhecido": { title: "Overlord" },
+    "título nulo": { title: null },
     "chave extra": { theme: "dark" },
   };
 
@@ -142,6 +144,19 @@ describe("profileStyle", () => {
       );
     });
   }
+
+  test("aceita as recompensas das conquistas v2 e o título", async () => {
+    await seed(`users/${UID}`, VALID_PROFILE);
+    const style = {
+      ...VALID_STYLE,
+      cover: "Cosmos",
+      accent: "Emerald",
+      frame: "Lightning",
+      title: "AlterEgo",
+      featuredBadges: ["Legion", "Multiverse", "Sentinel"],
+    };
+    await assertSucceeds(updateDoc(doc(db(), `users/${UID}`), { profileStyle: style }));
+  });
 
   test("aceita resposta vazia (cartão escondido) e listas vazias", async () => {
     await seed(`users/${UID}`, VALID_PROFILE);

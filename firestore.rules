@@ -63,10 +63,16 @@ service cloud.firestore {
     function validProfileStyle(s) {
       return s is map
         && s.keys().hasOnly(['cover', 'accent', 'frame', 'prompt', 'promptAnswer',
-                             'featuredConnections', 'featuredBadges'])
-        && (!('cover' in s) || s.cover in ['Energy', 'Halftone', 'Comic', 'Night'])
-        && (!('accent' in s) || s.accent in ['Pink', 'Red', 'Blue', 'Violet', 'Gold'])
-        && (!('frame' in s) || s.frame in ['Simple', 'Ring', 'Hexagon', 'Burst'])
+                             'featuredConnections', 'featuredBadges', 'title'])
+        && (!('cover' in s) || s.cover in ['Energy', 'Halftone', 'Comic', 'Night',
+                                            'Headline', 'Blueprint', 'Cosmos'])
+        && (!('accent' in s) || s.accent in ['Pink', 'Red', 'Blue', 'Violet', 'Gold',
+                                              'Emerald', 'Silver'])
+        && (!('frame' in s) || s.frame in ['Simple', 'Ring', 'Hexagon', 'Burst',
+                                            'Shield', 'Cosmic', 'Lightning'])
+        // Sem título, o app não grava o campo (apaga ao tirar): nunca chega null.
+        && (!('title' in s) || s.title in ['Recruit', 'IceBreaker', 'Explorer', 'Diplomat',
+                                            'LivingLegend', 'AlterEgo'])
         && (!('prompt' in s) || s.prompt in ['DreamPower', 'IdealTeam', 'FirstRecruit'])
         && (!('promptAnswer' in s)
               || (s.promptAnswer is string && s.promptAnswer.size() <= 80))
@@ -74,8 +80,10 @@ service cloud.firestore {
         && (!('featuredBadges' in s)
               || (s.featuredBadges is list && s.featuredBadges.size() <= 3
                   && enumList(s.featuredBadges,
-                       ['FirstConnection', 'TeamUp', 'IceBreaker', 'Storyteller',
-                        'Explorer', 'Crossover'])));
+                       ['FirstConnection', 'TeamUp', 'FullRoster', 'Legion',
+                        'IceBreaker', 'RoundOfIntros', 'Storyteller', 'Diplomat', 'Veteran',
+                        'Explorer', 'Scout', 'Cartographer', 'Crossover', 'Multiverse',
+                        'SecretIdentity', 'Sentinel'])));
     }
 
     function validAiConsent(c) {
