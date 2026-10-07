@@ -15,7 +15,6 @@ STATUS_BY_CODE = {
     "already_decided": 409,
     "nothing_to_regenerate": 409,
     "reply_pending": 409,
-    "blocked_content": 422,
     "rate_limited": 429,
     "provider_unavailable": 503,
 }
@@ -56,10 +55,6 @@ MESSAGES = {
     "already_decided": {
         EN: "You have already decided on this character.",
         PT_BR: "Você já decidiu sobre este personagem.",
-    },
-    "blocked_content": {
-        EN: "This message can't be sent.",
-        PT_BR: "Esta mensagem não pode ser enviada.",
     },
     "rate_limited": {
         EN: "Too many requests in a row. Try again later.",

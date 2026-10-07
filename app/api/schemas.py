@@ -82,9 +82,10 @@ class AcceptedMessage(BaseModel):
     userMessage: Message
 
 
-class RegeneratedReply(BaseModel):
+class RegenerationAccepted(BaseModel):
+    """Nova resposta pedida: o texto novo chega depois, pelo Firestore, na mesma mensagem."""
+
     reply: Message
-    suggestions: list[str]
 
 
 class RewindRequest(BaseModel):

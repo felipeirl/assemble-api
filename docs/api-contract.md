@@ -86,6 +86,8 @@ Contrato entre o app Android e o backend Python. Em rotas, formatos e erros, est
 | `blocked` | recusada pelo guardrail; o texto nunca é gravado (`blockReason` diz o motivo). Em `self_harm` (CVV 188) e `sexual_violence` (180, 100 e 190), a resposta é um texto fixo de acolhimento com os canais de ajuda | balão com aviso |
 | `failed` | a resposta não pôde ser gerada (`errorCode`, hoje sempre `provider_unavailable`) | "Try again": reenvia com a **mesma** `Idempotency-Key` |
 
+Na mensagem do **personagem**, `status` só muda em "gerar outra resposta": `pending` enquanto o texto novo é gerado ("digitando"; o texto anterior continua no documento) e `failed` se não deu certo (o texto anterior continua; `errorCode` diz o motivo).
+
 Mensagem sem `status` (gravada antes desta versão) vale como `sent`.
 
 ### AcceptedMessage (resposta do envio)
@@ -166,7 +168,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 | POST | `/v2/decisions/undo` | — | `DeckCard` (volta ao topo) | botão Undo |
 | GET | `/v2/characters/{id}` | — | `CharacterPreview` ou `CharacterProfile` | pré-visualização, perfil |
 | POST | `/v2/connections/{id}/messages` | `{ "text" }` (1–1000 caracteres) | `202` `AcceptedMessage` | conversa |
-| POST | `/v2/connections/{id}/messages/regenerate` | — | `{ reply, suggestions }` | "Gerar outra resposta" |
+| POST | `/v2/connections/{id}/messages/regenerate` | — | `202` `{ reply }` | "Gerar outra resposta" |
 | POST | `/v2/connections/{id}/messages/rewind` | `{ "messageId" }` | `204` | "Voltar a conversa" |
 | GET | `/v2/onboarding/reaction-cards` | — | `{ cards: [DeckCard] }` | cadastro: rodada "este ou aquele" |
 | PUT | `/v2/taste-signals/{id}` | `{ "liked": true }` | `204` | cadastro: ensina o gosto, não é decisão |
@@ -184,7 +186,7 @@ Notas:
 - **Undo**: só o último Pass do dia, uma vez. Sem Pass para desfazer → `409 nothing_to_undo`.
 - **Pré-visualização a partir do card**: o app já tem `name` e `imageUrl` do `DeckCard` (a arte aparece na hora); a rota completa o resto.
 - **Mudança de preferências** no meio do dia **não** refaz o baralho do dia; vale a partir do próximo.
-- **Regenerar** troca o texto da última resposta do personagem mantendo o `id` da mensagem; **voltar** apaga tudo depois de uma resposta do personagem (a abertura vale). Mensagem de usuário como alvo dá `400`; id desconhecido, `404`; sem resposta do personagem para trocar, `409 nothing_to_regenerate`.
+- **Regenerar (assíncrono)**: a última resposta do personagem fica `status = pending` e o backend responde `202` com ela; a fila troca o texto **no mesmo documento** (mesmo `id`) e volta a `sent`, com as `suggestions` novas na conexão. Se falhar, o texto anterior continua e a mensagem fica `failed` (`errorCode`: `provider_unavailable`, ou `blocked_content` se a mensagem do usuário que ela responde passou a ser recusada). Enquanto está na fila, a conversa está ocupada (`409 reply_pending`). **Voltar** apaga tudo depois de uma resposta do personagem; **voltar** apaga tudo depois de uma resposta do personagem (a abertura vale). Mensagem de usuário como alvo dá `400`; id desconhecido, `404`; sem resposta do personagem para trocar, `409 nothing_to_regenerate`.
 - **Foto do perfil**: o app envia o JPEG direto ao Cloudinary com os campos assinados e grava a URL `https://res.cloudinary.com/...` em `users/{uid}.avatarPhoto`.
 - O app não chama rota para "marcar como lida" nem "desbloqueio visto": grava `lastReadAt` / `profileUnlockSeenAt` direto no Firestore.
 
@@ -200,8 +202,7 @@ Formato: `{ "error": "codigo", "message": "texto no idioma do Accept-Language" }
 | 403 | `email_not_verified` | cadastro por e-mail e senha sem o e-mail confirmado | tela "Confirme o seu e-mail" |
 | 404 | `not_found` | personagem/conexão não existe | estado "Unavailable" |
 | 409 | `nothing_to_undo`, `nothing_to_regenerate`, `already_decided` | Undo sem Pass; nada para regenerar; decisão repetida sem a mesma `Idempotency-Key` | some com o botão / usa a decisão gravada |
-| 409 | `reply_pending` | mensagem nova antes da resposta da anterior | espera a resposta chegar pelo Firestore |
-| 422 | `blocked_content` | regenerar a partir de uma mensagem recusada pela Laya (no envio, a recusa vem como `status = blocked` no Firestore) | balão com aviso, sem resposta do personagem |
+| 409 | `reply_pending` | mensagem nova ou "gerar outra resposta" enquanto a conversa tem algo na fila | espera a resposta chegar pelo Firestore |
 | 429 | `rate_limited` | limite de mensagens ou de Assembles (60/hora cada) | aviso com o tempo de espera (`Retry-After`) |
 | 503 | `provider_unavailable` | modelo/guardrail fora; no envio de mensagem, fila de respostas cheia (com `Retry-After`) | "Try again" na mensagem |
 

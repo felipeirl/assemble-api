@@ -5,7 +5,7 @@ from app.api.schemas import (
     CharacterIdPath,
     CharacterView,
     PhotoSignature,
-    RegeneratedReply,
+    RegenerationAccepted,
     RewindRequest,
     SendMessageRequest,
     UserStats,
@@ -53,13 +53,16 @@ def send_message(
 
 @router.post(
     "/connections/{connection_id}/messages/regenerate",
-    response_model=RegeneratedReply,
+    status_code=ACCEPTED,
+    response_model=RegenerationAccepted,
     response_model_exclude_none=True,
 )
 def regenerate_message(
     connection_id: CharacterIdPath, uid: ActiveUid, locale: Locale, container: ContainerDep
-) -> RegeneratedReply:
-    return container.conversation_service.regenerate(uid, connection_id, locale)
+) -> RegenerationAccepted:
+    # O texto novo é gerado na fila e chega ao app pelo Firestore, na mesma mensagem.
+    reply = container.conversation_service.regenerate(uid, connection_id, locale)
+    return RegenerationAccepted(reply=reply)
 
 
 @router.post("/connections/{connection_id}/messages/rewind", status_code=NO_CONTENT)

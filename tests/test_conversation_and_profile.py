@@ -516,15 +516,28 @@ def test_regenerate_replaces_the_last_reply_in_place(client, connected, clock):
 
     response = regenerate(client)
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     body = response.json()
     assert body["reply"]["id"] == first["reply"]["id"]
     assert body["reply"]["author"] == "CHARACTER"
+    assert body["reply"]["status"] == "pending"
     assert message_ids(connected) == before
-    stored = connected.store.get(f"users/{UID}/matches/storm/messages/{body['reply']['id']}")
-    assert stored["text"] == body["reply"]["text"]
+    stored = stored_message(connected, body["reply"]["id"])
+    assert stored["status"] == "sent"
     assert "regeneratedAt" in stored
-    assert len(body["suggestions"]) == 3
+    assert len(connected.store.get(f"users/{UID}/matches/storm")["suggestions"]) == 3
+
+
+def test_regenerate_marks_the_reply_pending_until_the_queue_runs(client, connected, clock):
+    first = talk(client, clock, "Oi")
+    connected.reply_queue.hold = True
+
+    regenerate(client)
+
+    assert stored_message(connected, first["reply"]["id"])["status"] == "pending"
+    assert send(client, "outra", key="k2").status_code == 409
+    connected.reply_queue.run_pending()
+    assert stored_message(connected, first["reply"]["id"])["status"] == "sent"
 
 
 def test_regenerate_asks_the_model_for_the_same_user_message(client, connected, clock):
@@ -545,7 +558,7 @@ def test_regenerate_the_opener_when_the_chat_has_only_that(client, connected, cl
 
     response = regenerate(client)
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert response.json()["reply"]["id"] == opener_ids[0]
     assert connected.llm.calls[-1]["messages"][-1]["content"].startswith("The user and")
 
@@ -578,9 +591,29 @@ def test_regenerate_provider_failure_keeps_the_old_reply(client, connected, cloc
 
     response = regenerate(client)
 
-    assert response.status_code == 503
-    stored = connected.store.get(f"users/{UID}/matches/storm/messages/{reply['id']}")
+    assert response.status_code == 202
+    stored = stored_message(connected, reply["id"])
     assert stored["text"] == reply["text"]
+    assert stored["status"] == "failed"
+    assert stored["errorCode"] == "provider_unavailable"
+    connected.llm.fail = False
+    assert regenerate(client).status_code == 202
+    assert "errorCode" not in stored_message(connected, reply["id"])
+
+
+def test_regenerate_is_dropped_when_the_chat_is_rewound_past_it(client, connected, clock):
+    opener_id = message_ids(connected)[0]
+    first = talk(client, clock, "Oi")
+    connected.reply_queue.hold = True
+    regenerate(client)
+    rewind(client, opener_id)
+    calls = len(connected.llm.calls)
+
+    connected.reply_queue.run_pending()
+
+    assert len(connected.llm.calls) == calls
+    assert stored_message(connected, first["reply"]["id"]) is None
+    assert stored_message(connected, opener_id)["status"] == "sent"
 
 
 def test_rewind_deletes_everything_after_the_chosen_reply(client, connected, clock):

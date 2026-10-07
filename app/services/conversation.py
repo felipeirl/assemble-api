@@ -4,18 +4,18 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, ChatResult, character_context
 from app.ai.guardrail import REFERRAL_REASONS, GuardrailUnavailableError
 from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
 from app.ai.memory import MemorySummarizer
 from app.ai.prompts import fallback_suggestions, preview
-from app.api.schemas import Message, RegeneratedReply
+from app.api.schemas import Message
 from app.clock import Clock
 from app.domain.enums import Author
 from app.errors import ApiError
@@ -68,6 +68,28 @@ class ReplyJob:
     text: str
     locale: str
     user_at: datetime
+
+
+@dataclass(frozen=True)
+class RegenerateJob:
+    """Troca do texto da última resposta do personagem, na fila."""
+
+    uid: str
+    connection_id: str
+    message_id: str
+    locale: str
+
+
+QueuedJob = ReplyJob | RegenerateJob
+
+
+@dataclass(frozen=True)
+class RegenerationTarget:
+    message_id: str
+    doc: dict[str, Any]
+    mode: Literal["opener", "reply"]
+    text: str
+    history_docs: list
 
 
 def pending_user_message(created_at: datetime, idempotency_key: str) -> dict[str, Any]:
@@ -181,7 +203,8 @@ class ConversationService:
             message_id = new_message_id()
             doc = pending_user_message(user_at, key)
             self._messages.add(uid, connection_id, message_id, doc)
-            self._enqueue(ReplyJob(uid, connection_id, message_id, text, locale, user_at))
+            job = ReplyJob(uid, connection_id, message_id, text, locale, user_at)
+            self._enqueue(job, lambda: self._answer(job))
             return to_message(message_id, connection_id, {**doc, "text": text})
 
     def _resume(
@@ -211,7 +234,7 @@ class ConversationService:
                 {"status": STATUS_PENDING, "errorCode": DELETE_FIELD},
             )
             job = ReplyJob(uid, connection_id, message_id, text, locale, doc["createdAt"])
-            self._enqueue(job)
+            self._enqueue(job, lambda: self._answer(job))
             doc = {**doc, "status": STATUS_PENDING}
         return to_message(message_id, connection_id, {**doc, "text": doc.get("text") or text})
 
@@ -241,32 +264,35 @@ class ConversationService:
             if (uid, connection_id) in self._queued:
                 raise ApiError("reply_pending")
 
-    def _enqueue(self, job: ReplyJob) -> None:
+    def _enqueue(self, job: QueuedJob, run: Callable[[], None]) -> None:
+        """Põe o trabalho na fila; a conversa fica ocupada até ele terminar."""
         key = (job.uid, job.connection_id)
         with self._locks_guard:
             self._queued[key] = job.message_id
         queued_at = time.perf_counter()
-        if self._replies.submit(lambda: self._answer(job, queued_at)):
+        if self._replies.submit(lambda: self._run_job(job, run, queued_at)):
             return
         with self._locks_guard:
             self._queued.pop(key, None)
         self._settle(job, {"status": STATUS_FAILED, "errorCode": "provider_unavailable"})
         raise ApiError("provider_unavailable", headers={"Retry-After": str(QUEUE_FULL_RETRY_AFTER)})
 
-    def _answer(self, job: ReplyJob, queued_at: float) -> None:
-        """Roda na fila: gera a resposta, grava a troca e agenda o resumo da conversa.
-
-        Qualquer falha marca a mensagem como `failed`: ela nunca fica pendente para sempre.
-        """
+    def _run_job(self, job: QueuedJob, run: Callable[[], None], queued_at: float) -> None:
+        """Roda na fila. Qualquer falha marca a mensagem como `failed`: nada fica pendente para
+        sempre."""
         timing_logger.info("tempo espera na fila: %d ms", (time.perf_counter() - queued_at) * 1000)
         try:
-            self._reply(job)
+            run()
         except Exception:
-            logger.exception("Resposta do chat falhou sem tratamento.")
+            logger.exception("Tarefa do chat falhou sem tratamento.")
             self._settle(job, {"status": STATUS_FAILED, "errorCode": "provider_unavailable"})
         finally:
             with self._locks_guard:
                 self._queued.pop((job.uid, job.connection_id), None)
+
+    def _answer(self, job: ReplyJob) -> None:
+        """Gera a resposta, grava a troca e agenda o resumo da conversa."""
+        self._reply(job)
         self._background.submit(lambda: self.refresh_memory(job.uid, job.connection_id, job.locale))
 
     def _reply(self, job: ReplyJob) -> None:
@@ -303,19 +329,44 @@ class ConversationService:
         with timed("gravacao da troca"):
             self._save_exchange(job, result)
 
-    def _settle(self, job: ReplyJob, fields: dict[str, Any]) -> bool:
-        """Atualiza a mensagem do usuário; False se ela já não existe (voltar a conversa, conta
+    def _settle(self, job: QueuedJob, fields: dict[str, Any]) -> bool:
+        """Atualiza a mensagem do trabalho; False se ela já não existe (voltar a conversa, conta
         apagada): nesse caso nada mais é gravado."""
         try:
             self._messages.update(job.uid, job.connection_id, job.message_id, fields)
         except DocumentNotFoundError:
-            logger.info("Resposta descartada: a mensagem do usuário foi apagada.")
+            logger.info("Resultado descartado: a mensagem foi apagada.")
             return False
         return True
 
-    def regenerate(self, uid: str, connection_id: str, locale: str) -> RegeneratedReply:
-        """Gera outra resposta no lugar da última do personagem (mesma mensagem, texto novo)."""
-        character = self._open_connection(uid, connection_id)
+    def regenerate(self, uid: str, connection_id: str, locale: str) -> Message:
+        """Pede outra resposta no lugar da última do personagem (mesma mensagem, texto novo).
+
+        A mensagem fica `pending` e a fila troca o texto; o app vê a troca pelo Firestore. Se
+        falhar, o texto anterior continua e a mensagem fica `failed`.
+        """
+        self._open_connection(uid, connection_id)
+        self._engine()
+        with self._serialized((uid, connection_id)):
+            self._ensure_idle(uid, connection_id)
+            target = self._regeneration_target(uid, connection_id)
+            if target is None:
+                raise ApiError("nothing_to_regenerate")
+            self._hit_rate_limit(uid)
+            self._messages.update(
+                uid,
+                connection_id,
+                target.message_id,
+                {"status": STATUS_PENDING, "errorCode": DELETE_FIELD},
+            )
+            job = RegenerateJob(uid, connection_id, target.message_id, locale)
+            self._enqueue(job, lambda: self._regenerate(job))
+            return to_message(
+                target.message_id, connection_id, {**target.doc, "status": STATUS_PENDING}
+            )
+
+    def _regeneration_target(self, uid: str, connection_id: str) -> RegenerationTarget | None:
+        """Última resposta do personagem e o que a provocou (a abertura ou a mensagem anterior)."""
         visible = [
             (message_id, doc)
             for message_id, doc in self._messages.recent(
@@ -324,57 +375,67 @@ class ConversationService:
             if not doc.get("hidden")
         ]
         if not visible or visible[-1][1].get("author") != Author.CHARACTER.value:
-            raise ApiError("nothing_to_regenerate")
+            return None
         last_id, last_doc = visible[-1]
         earlier = visible[:-1]
         if not earlier:
-            mode, text, history_docs = "opener", "", []
-        elif earlier[-1][1].get("author") == Author.USER.value and earlier[-1][1].get("text"):
-            mode, text, history_docs = "reply", earlier[-1][1]["text"], earlier[:-1]
-        else:
-            raise ApiError("nothing_to_regenerate")
-        self._hit_rate_limit(uid)
+            return RegenerationTarget(last_id, last_doc, "opener", "", [])
+        previous = earlier[-1][1]
+        if previous.get("author") == Author.USER.value and previous.get("text"):
+            return RegenerationTarget(last_id, last_doc, "reply", previous["text"], earlier[:-1])
+        return None
 
+    def _regenerate(self, job: RegenerateJob) -> None:
+        """Roda na fila: gera o texto novo e troca na mesma mensagem."""
+        match = self._matches.get(job.uid, job.connection_id)
+        character = self._characters.get(job.connection_id)
+        if match is None or match.get("hidden") or character is None:
+            logger.info("Nova resposta descartada: a conversa não está mais aberta.")
+            return
+        target = self._regeneration_target(job.uid, job.connection_id)
+        if target is None or target.message_id != job.message_id:
+            # A conversa mudou enquanto esperava (voltar a conversa): a mensagem fica como estava.
+            self._settle(job, {"status": STATUS_SENT})
+            return
         request = ChatRequest(
             request_id=str(uuid.uuid4()),
-            mode=mode,
-            locale=locale,
-            character=character_context(connection_id, character, locale),
-            persona=self._personas.get(connection_id) or {},
-            history=self._history_from(history_docs),
-            message=text,
-            looking_for=self._users.looking_for(uid) if mode == "opener" else None,
-            memory=memory_text(self._matches.get(uid, connection_id)),
+            mode=target.mode,
+            locale=job.locale,
+            character=character_context(job.connection_id, character, job.locale),
+            persona=self._personas.get(job.connection_id) or {},
+            history=self._history_from(target.history_docs),
+            message=target.text,
+            looking_for=self._users.looking_for(job.uid) if target.mode == "opener" else None,
+            memory=memory_text(match),
         )
         try:
-            with provider_errors_as_api_errors():
+            with timed("nova resposta do chat (total)"):
                 result = self._engine().respond(request)
-        except BlockedInputError as exc:
-            raise ApiError("blocked_content") from exc
-
-        now = self._clock.now()
-        self._messages.update(
-            uid,
-            connection_id,
-            last_id,
+        except BlockedInputError:
+            self._settle(job, {"status": STATUS_FAILED, "errorCode": "blocked_content"})
+            return
+        except (*PROVIDER_ERRORS, ApiError) as exc:
+            logger.warning("Nova resposta do chat falhou: %s", type(exc).__name__)
+            self._settle(job, {"status": STATUS_FAILED, "errorCode": "provider_unavailable"})
+            return
+        updated = self._settle(
+            job,
             {
                 "text": result.reply,
                 "blocked": result.blocked,
                 "blockReason": result.block_reason or DELETE_FIELD,
                 "model": result.model,
                 "promptVersion": result.prompt_version,
-                "regeneratedAt": now,
+                "regeneratedAt": self._clock.now(),
+                "status": STATUS_SENT,
             },
         )
-        self._matches.update(
-            uid,
-            connection_id,
-            {"lastMessagePreview": preview(result.reply), "suggestions": result.suggestions},
-        )
-        updated = {**last_doc, "text": result.reply, "blocked": result.blocked}
-        return RegeneratedReply(
-            reply=to_message(last_id, connection_id, updated), suggestions=result.suggestions
-        )
+        if updated:
+            self._matches.update(
+                job.uid,
+                job.connection_id,
+                {"lastMessagePreview": preview(result.reply), "suggestions": result.suggestions},
+            )
 
     def rewind(self, uid: str, connection_id: str, message_id: str, locale: str) -> None:
         """Volta a conversa até uma resposta do personagem: apaga tudo o que veio depois."""
