@@ -84,6 +84,7 @@ class FakeGuardrail:
     INPUT_TRIGGERS = {
         "jailbreak": "jailbreak",
         "suicid": "self_harm",
+        "fui abusada": "sexual_violence",
         "@": "personal_data",
         "sexo": "sexual",
     }

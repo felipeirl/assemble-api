@@ -20,10 +20,14 @@ REASON_SELF_HARM = "self_harm"
 # Segunda pergunta de autoagressão, sobre a própria pessoa; vale como REASON_SELF_HARM.
 REASON_SELF_HARM_OWN = "self_harm_own"
 REASON_SEXUAL = "sexual"
+# Relato de violência sexual sofrida: como autoagressão, vira encaminhamento (180, 100, 190).
+REASON_SEXUAL_VIOLENCE = "sexual_violence"
 REASON_OUT_OF_ROLE = "out_of_role"
 REASON_CANON_CLAIM = "canon_claim"
 REASON_HARMFUL = "harmful"
 REASON_INJECTION = "injection"
+# Motivos que recebem uma resposta fixa de acolhimento com canais de ajuda, e não uma recusa.
+REFERRAL_REASONS = frozenset({REASON_SELF_HARM, REASON_SEXUAL_VIOLENCE})
 
 INPUT_QUESTIONS = {
     # Duas perguntas sobre a PRÓPRIA pessoa: a pergunta genérica ("pensamentos suicidas") dava 0,73
@@ -42,6 +46,10 @@ INPUT_QUESTIONS = {
     REASON_PERSONAL_DATA: (
         "Does the message contain personal contact data such as a phone number, e-mail "
         "address or home address?"
+    ),
+    REASON_SEXUAL_VIOLENCE: (
+        "Is the person writing this message disclosing that they were a victim of sexual "
+        "violence or sexual abuse?"
     ),
 }
 
@@ -74,6 +82,9 @@ INPUT_THRESHOLDS = {
     REASON_SELF_HARM_OWN: 0.5,
     REASON_JAILBREAK: 0.9,
     REASON_PERSONAL_DATA: 0.9,
+    # Separa mal (0,82 para "fui estuprada", 0,69 para um estupro numa HQ, 0,14 para "my uncle
+    # molested me"): a rede principal é SEXUAL_VIOLENCE_PATTERN e o sinal exige indício textual.
+    REASON_SEXUAL_VIOLENCE: 0.5,
 }
 OUTPUT_THRESHOLDS = {
     # Para personagens robôs, falas em personagem pontuam 0,50 a 0,72 e vazamentos reais 0,45 a
@@ -106,6 +117,27 @@ SELF_HARM_PATTERN = re.compile(
     r"|sentir (a )?minha falta se eu|tomar todos os rem[eé]dios|me enforcar|me jogar (d|n)"
     r"|cortar os pulsos|me cortar|n[aã]o vejo sentido (em continuar|na vida)",
     re.IGNORECASE,
+)
+
+# Violência sexual sofrida, contada em primeira pessoa (pt e en): rede principal, porque o Laya
+# separa mal. Falar de um caso alheio, de ficção ou do jornal não casa aqui.
+SEXUAL_VIOLENCE_PATTERN = re.compile(
+    r"\bfui (estuprad|abusad|violentad|molestad|assediad)"
+    r"|\bme (estupr|abus|violent|molest|assedi|apalp|bolin|encox)\w*"
+    r"|\babus\w* de mim|passou a m[aã]o em mim|me toc(ou|ava) sem (eu )?(querer|permiss|consent)"
+    r"|\bme (for[cç]ou|obrigou|obrigava|for[cç]ava) a (fazer sexo|transar|ter rela[cç])"
+    r"|\bsofri (um |uma )?(estupro|abuso|ass[eé]dio(?! moral)|viol[eê]ncia sexual)"
+    r"|\bi( was| got| have been|'ve been) (raped|molested|groped|sexually (abused|assaulted))"
+    r"|\b(raped|molested|groped|sexually (abused|assaulted)) me\b"
+    r"|\btouched me without (my )?consent",
+    re.IGNORECASE,
+)
+# O sinal do Laya só vale com um termo de violência sexual e uma marca de primeira pessoa juntos.
+SEXUAL_VIOLENCE_CUE_PATTERN = re.compile(
+    r"^(?=.*(estupr|abus|viol[eê]ncia sexual|violentad|molest|ass[eé]di|for[cç]|rape|assault"
+    r"|groped|without (my )?consent))"
+    r"(?=.*\b(eu|me|mim|fui|comigo|meu|minha|i|my|myself)\b)",
+    re.IGNORECASE | re.DOTALL,
 )
 
 # Jailbreak: o modelo dá 1,00 até para "Você já errou feio?", então seu sinal só vale com um
@@ -169,6 +201,7 @@ HARMFUL_CUE_PATTERN = re.compile(
 CUE_REQUIRED = {
     REASON_JAILBREAK: JAILBREAK_CUE_PATTERN,
     REASON_SELF_HARM: SELF_HARM_CUE_PATTERN,
+    REASON_SEXUAL_VIOLENCE: SEXUAL_VIOLENCE_CUE_PATTERN,
 }
 OUTPUT_CUE_REQUIRED = {REASON_HARMFUL: HARMFUL_CUE_PATTERN, REASON_CANON_CLAIM: CANON_CUE_PATTERN}
 
@@ -206,6 +239,10 @@ JAILBREAK_CERTAIN_PATTERN = re.compile(
 
 def has_self_harm_signal(text: str) -> bool:
     return SELF_HARM_PATTERN.search(text) is not None
+
+
+def has_sexual_violence_signal(text: str) -> bool:
+    return SEXUAL_VIOLENCE_PATTERN.search(text) is not None
 
 
 def has_personal_data(text: str) -> bool:
@@ -287,6 +324,9 @@ class LayaGuardrail:
     def check_input(self, text: str) -> GuardVerdict:
         if has_self_harm_signal(text):
             return GuardVerdict(blocked=True, reason=REASON_SELF_HARM)
+        # Antes da regra sexual: "ele me forçou a fazer sexo" é um relato, não um pedido sexual.
+        if has_sexual_violence_signal(text):
+            return GuardVerdict(blocked=True, reason=REASON_SEXUAL_VIOLENCE)
         if has_personal_data(text):
             return GuardVerdict(blocked=True, reason=REASON_PERSONAL_DATA)
         if JAILBREAK_CERTAIN_PATTERN.search(text):
@@ -362,6 +402,8 @@ class LayaGuardrail:
             return ALLOWED
         if REASON_SELF_HARM in exceeded or REASON_SELF_HARM_OWN in exceeded:
             return GuardVerdict(blocked=True, reason=REASON_SELF_HARM)
+        if REASON_SEXUAL_VIOLENCE in exceeded:
+            return GuardVerdict(blocked=True, reason=REASON_SEXUAL_VIOLENCE)
         return GuardVerdict(blocked=True, reason=max(exceeded, key=exceeded.get))
 
     def _ask(self, state: dict[str, str], questions: dict[str, Any]) -> dict[str, Any]:

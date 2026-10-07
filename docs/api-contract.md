@@ -83,7 +83,7 @@ Contrato entre o app Android e o backend Python. Em rotas, formatos e erros, est
 |---|---|---|
 | `pending` | resposta na fila; o documento ainda **não tem o texto** (`text = ""`) | mostra a cópia local da mensagem e o "digitando" |
 | `sent` | respondida; o documento tem o texto e `replyId` | mensagem normal |
-| `blocked` | recusada pelo guardrail; o texto nunca é gravado (`blockReason` diz o motivo). Em `self_harm`, a resposta do personagem é o encaminhamento ao CVV | balão com aviso |
+| `blocked` | recusada pelo guardrail; o texto nunca é gravado (`blockReason` diz o motivo). Em `self_harm` (CVV 188) e `sexual_violence` (180, 100 e 190), a resposta é um texto fixo de acolhimento com os canais de ajuda | balão com aviso |
 | `failed` | a resposta não pôde ser gerada (`errorCode`, hoje sempre `provider_unavailable`) | "Try again": reenvia com a **mesma** `Idempotency-Key` |
 
 Mensagem sem `status` (gravada antes desta versão) vale como `sent`.

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, ChatResult, character_context
-from app.ai.guardrail import GuardrailUnavailableError
+from app.ai.guardrail import REFERRAL_REASONS, GuardrailUnavailableError
 from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
 from app.ai.memory import MemorySummarizer
 from app.ai.prompts import fallback_suggestions, preview
@@ -481,7 +481,7 @@ class ConversationService:
             return
         reply_at = max(self._clock.now(), job.user_at + REPLY_MIN_GAP)
         reply_id = new_message_id()
-        input_blocked = result.blocked and result.block_reason == "self_harm"
+        input_blocked = result.blocked and result.block_reason in REFERRAL_REASONS
         user_fields: dict[str, Any] = {
             # Texto recusado pelo guardrail nunca é guardado, só o motivo.
             "text": "" if input_blocked else job.text,

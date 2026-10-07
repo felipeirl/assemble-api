@@ -340,6 +340,19 @@ def test_self_harm_gets_referral_and_text_is_not_stored(client, connected):
     assert stored["userMessage"]["blockReason"] == "self_harm"
 
 
+def test_sexual_violence_gets_referral_and_text_is_not_stored(client, connected):
+    response = send(client, "fui abusada pelo meu ex")
+
+    assert response.status_code == 202
+    stored = exchange(connected, response.json()["userMessage"]["id"])
+    assert "180" in stored["reply"]["text"]
+    assert stored["reply"]["blocked"] is True
+    assert stored["userMessage"]["text"] == ""
+    assert stored["userMessage"]["status"] == "blocked"
+    assert stored["userMessage"]["blockReason"] == "sexual_violence"
+    assert all("abusada" not in call["messages"][-1]["content"] for call in connected.llm.calls)
+
+
 def test_text_length_rules(client, connected):
     assert send(client, "   ").status_code == 400
     assert send(client, "x" * 1001).status_code == 400

@@ -119,6 +119,22 @@ SELF_HARM_REPLY = {
     ),
 }
 
+SEXUAL_VIOLENCE_REPLY = {
+    PT_BR: (
+        "Sinto muito que isso tenha acontecido. Quem passa por isso não tem culpa e não precisa "
+        "enfrentar sozinho. Ligue 180 (Central de Atendimento à Mulher) ou Disque 100 (direitos "
+        "humanos, inclusive de crianças e adolescentes): os dois são gratuitos e funcionam 24h. "
+        "Se você estiver em perigo agora, ligue 190."
+    ),
+    EN: (
+        "I'm so sorry this happened. Whoever goes through this is not to blame and doesn't have "
+        "to face it alone. "
+        "If you're in danger right now, call your local emergency number. In Brazil, call 180 "
+        "(women's helpline) or 100 (human rights, including children), both free and 24h, or "
+        "190 for the police."
+    ),
+}
+
 
 def system_prompt(locale: str) -> str:
     language = LANGUAGE_NAMES[locale]

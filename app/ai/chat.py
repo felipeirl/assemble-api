@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.ai import prompts
-from app.ai.guardrail import REASON_SELF_HARM, Guardrail
+from app.ai.guardrail import REASON_SELF_HARM, REASON_SEXUAL_VIOLENCE, Guardrail
 from app.ai.llm import InvalidModelOutputError, LlmClient, parse_json_object
 from app.ai.memory import memory_block
 from app.catalog.names import display_name
@@ -20,6 +20,12 @@ CHAT_TEMPERATURE = 0.8
 GENERATION_ATTEMPTS = 3
 FIXED_REPLY_MODEL = "fixed"
 CHARACTER_FACT_KEYS = ("id", "name", "realName", "origin", "powers", "teams", "firstAppearance")
+
+# Resposta fixa de acolhimento por motivo: o modelo não é chamado e o texto não é guardado.
+REFERRAL_REPLIES = {
+    REASON_SELF_HARM: prompts.SELF_HARM_REPLY,
+    REASON_SEXUAL_VIOLENCE: prompts.SEXUAL_VIOLENCE_REPLY,
+}
 
 REPLY_FIELD_PATTERN = re.compile(r'"reply"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
@@ -87,8 +93,8 @@ class ChatEngine:
         if request.mode == "reply":
             with timed("filtro de entrada"):
                 verdict = self._guardrail.check_input(request.message)
-            if verdict.blocked and verdict.reason == REASON_SELF_HARM:
-                return self._fixed(request, prompts.SELF_HARM_REPLY, REASON_SELF_HARM)
+            if verdict.blocked and verdict.reason in REFERRAL_REPLIES:
+                return self._fixed(request, REFERRAL_REPLIES[verdict.reason], verdict.reason)
             if verdict.blocked:
                 raise BlockedInputError(verdict.reason or "blocked")
 
