@@ -1,3 +1,6 @@
+import threading
+import time
+
 import pytest
 
 from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, character_context, parse_reply
@@ -308,6 +311,60 @@ def test_laya_output_thresholds_are_per_reason():
     assert verdict({"out_of_role": 0.91}).reason == "out_of_role"
     assert verdict({"out_of_role": 0.72}).blocked is False  # robô em personagem
     assert verdict({"canon_claim": 0.4}).blocked is False
+
+
+def test_laya_source_verdict_is_cached_by_text():
+    router = FakeRouter({})
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: router)
+
+    guard.check_source("minha bio")
+    guard.check_source("minha bio")
+    guard.check_source("outra bio")
+
+    assert [call[0]["text"] for call in router.calls] == ["minha bio", "outra bio"]
+
+
+def test_laya_source_failure_is_not_cached():
+    attempts = []
+
+    class FlakyRouter(FakeRouter):
+        def predict(self, state, questions, model=None):
+            attempts.append(state)
+            if len(attempts) == 1:
+                raise RuntimeError("torch")
+            return super().predict(state, questions, model)
+
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: FlakyRouter({}))
+
+    with pytest.raises(GuardrailUnavailableError):
+        guard.check_source("bio")
+    assert guard.check_source("bio").blocked is False
+
+
+def test_laya_runs_one_inference_at_a_time():
+    running = []
+    peak = []
+
+    class SlowRouter(FakeRouter):
+        def predict(self, state, questions, model=None):
+            running.append(1)
+            peak.append(len(running))
+            time.sleep(0.02)
+            running.pop()
+            return super().predict(state, questions, model)
+
+    router = SlowRouter({})
+    guard = LayaGuardrail(threshold=0.5, router_factory=lambda: router)
+    threads = [
+        threading.Thread(target=guard.affinity, args=(f"user {i}", "persona")) for i in range(5)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(router.calls) == 5
+    assert max(peak) == 1
 
 
 @pytest.mark.parametrize(

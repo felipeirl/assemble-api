@@ -1,5 +1,6 @@
 """Guardrail com o modelo de decisão Laya (local, multilíngue): entrada, saída e texto da fonte."""
 
+import functools
 import logging
 import re
 import threading
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 LAYA_MODEL = "multilingual"
+# Textos de fonte se repetem (bio e "o que procura" a cada Assemble): o veredito fica em memória.
+SOURCE_VERDICT_CACHE_SIZE = 2048
 
 REASON_JAILBREAK = "jailbreak"
 REASON_PERSONAL_DATA = "personal_data"
@@ -257,6 +260,12 @@ class LayaGuardrail:
         self._router_factory = router_factory
         self._router: Any = None
         self._lock = threading.Lock()
+        # Uma inferência por vez: cada uma já usa todos os núcleos, e várias juntas disputam a CPU
+        # até cada uma levar minutos (12 afinidades simultâneas passaram de 150 s cada).
+        self._inference_lock = threading.Lock()
+        self._cached_source_verdict = functools.lru_cache(maxsize=SOURCE_VERDICT_CACHE_SIZE)(
+            self._source_verdict
+        )
 
     def warm_up(self) -> None:
         """Carrega o Laya e faz uma pergunta de verdade: os pesos só vêm na primeira inferência.
@@ -312,6 +321,9 @@ class LayaGuardrail:
             ignored.add(verdict.reason)
 
     def check_source(self, text: str) -> GuardVerdict:
+        return self._cached_source_verdict(text)
+
+    def _source_verdict(self, text: str) -> GuardVerdict:
         return self._verdict({"text": text}, SOURCE_QUESTIONS, SOURCE_THRESHOLDS)
 
     def affinity(self, user_profile: str, persona: str) -> float:
@@ -346,7 +358,8 @@ class LayaGuardrail:
     def _ask(self, state: dict[str, str], questions: dict[str, Any]) -> dict[str, Any]:
         router = self._get_router()
         try:
-            return router.predict(state, questions, model=LAYA_MODEL)["answers"]
+            with self._inference_lock:
+                return router.predict(state, questions, model=LAYA_MODEL)["answers"]
         except Exception as exc:  # o Laya pode falhar em qualquer camada (torch, HF Hub)
             raise GuardrailUnavailableError(type(exc).__name__) from exc
 
