@@ -318,9 +318,15 @@ class LayaGuardrail:
         # Uma inferência por vez: cada uma já usa todos os núcleos, e várias juntas disputam a CPU
         # até cada uma levar minutos (12 afinidades simultâneas passaram de 150 s cada).
         self._inference_lock = PriorityLock()
+        # Pronto quando uma inferência já deu certo (os pesos só carregam na primeira).
+        self._warm = False
         # sha256 do texto -> veredito: a bio do usuário não fica na memória do processo.
         self._source_verdicts: OrderedDict[str, GuardVerdict] = OrderedDict()
         self._source_verdicts_guard = threading.Lock()
+
+    @property
+    def is_warm(self) -> bool:
+        return self._warm
 
     def warm_up(self) -> None:
         """Carrega o Laya e faz uma pergunta de verdade: os pesos só vêm na primeira inferência.
@@ -449,9 +455,11 @@ class LayaGuardrail:
         router = self._get_router()
         try:
             with self._inference_lock.hold(priority):
-                return router.predict(state, questions, model=LAYA_MODEL)["answers"]
+                answers = router.predict(state, questions, model=LAYA_MODEL)["answers"]
         except Exception as exc:  # o Laya pode falhar em qualquer camada (torch, HF Hub)
             raise GuardrailUnavailableError(type(exc).__name__) from exc
+        self._warm = True
+        return answers
 
     def _get_router(self) -> Any:
         with self._lock:

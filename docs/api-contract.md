@@ -158,6 +158,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 | Método | Rota | Corpo | Resposta | Tela do app |
 |---|---|---|---|---|
 | GET | `/health` | — | `{ "status": "ok" }` | — |
+| GET | `/ready` | — | `{ "laya": "warm \| loading \| off", "queues": { … } }` (`503` enquanto o Laya carrega) | — (monitoramento) |
 | GET | `/v2/deck` | — | `Deck` | Discover, "Deck complete" |
 | POST | `/v2/decisions` | `{ "characterId", "choice": "PASS" \| "ASSEMBLE" }` | PASS: `204`; ASSEMBLE: `202` `AssembleAccepted` | swipe, botões, pré-visualização |
 | POST | `/v2/decisions/undo` | — | `DeckCard` (volta ao topo) | botão Undo |

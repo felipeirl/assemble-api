@@ -24,6 +24,9 @@ class FakeQueue:
             task()
         return True
 
+    def stats(self) -> dict[str, int]:
+        return {"waiting": len(self.pending), "running": 0, "capacity": 0, "workers": 1}
+
     def run_pending(self) -> None:
         tasks, self.pending = self.pending, []
         for task in tasks:

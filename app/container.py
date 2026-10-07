@@ -105,6 +105,14 @@ class Container:
             self.llm, self.guardrail, model, self.settings.chat_reasoning_efforts
         )
 
+    def queues(self) -> dict[str, WorkQueue]:
+        """Filas de segundo plano, pelo nome, para o `/ready` e o log de saturação."""
+        return {
+            "chat": self.reply_queue,
+            "assembles": self.assemble_queue,
+            "memory": self.memory_queue,
+        }
+
     @cached_property
     def reply_queue(self) -> WorkQueue:
         """Respostas do chat fora da requisição: o modelo em paralelo, o Laya um por vez."""

@@ -68,3 +68,22 @@ def test_a_failing_task_does_not_stop_the_queue():
     queue.wait_idle()
 
     assert seen == ["depois"]
+
+
+def test_stats_count_waiting_and_running_tasks():
+    release = threading.Event()
+    started = threading.Event()
+    queue = WorkQueue("test", capacity=5, workers=1)
+
+    def blocking() -> None:
+        started.set()
+        release.wait()
+
+    queue.submit(blocking)
+    started.wait()
+    queue.submit(lambda: None)
+
+    assert queue.stats() == {"waiting": 1, "running": 1, "capacity": 5, "workers": 1}
+    release.set()
+    queue.wait_idle()
+    assert queue.stats()["running"] == 0
