@@ -535,7 +535,9 @@ def test_regenerate_marks_the_reply_pending_until_the_queue_runs(client, connect
 
     regenerate(client)
 
-    assert stored_message(connected, first["reply"]["id"])["status"] == "pending"
+    pending = stored_message(connected, first["reply"]["id"])
+    assert pending["status"] == "pending"
+    assert pending["regenerateRequestedAt"] == clock.now()
     assert send(client, "outra", key="k2").status_code == 409
     connected.reply_queue.run_pending()
     assert stored_message(connected, first["reply"]["id"])["status"] == "sent"

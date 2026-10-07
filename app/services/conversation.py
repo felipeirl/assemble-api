@@ -357,7 +357,12 @@ class ConversationService:
                 uid,
                 connection_id,
                 target.message_id,
-                {"status": STATUS_PENDING, "errorCode": DELETE_FIELD},
+                # O app usa o horário do pedido para não esperar para sempre se a fila se perder.
+                {
+                    "status": STATUS_PENDING,
+                    "errorCode": DELETE_FIELD,
+                    "regenerateRequestedAt": self._clock.now(),
+                },
             )
             job = RegenerateJob(uid, connection_id, target.message_id, locale)
             self._enqueue(job, lambda: self._regenerate(job))
