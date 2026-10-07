@@ -2,6 +2,21 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). As versões contam como um odômetro: cada release é uma grande adição e o número sobe de um em um (`0.0.8`, `0.0.9`, `0.1.0`, `0.1.1`...). Ao chegar em 9, avança a casa seguinte. Correções pequenas entram na release seguinte.
 
+## [0.1.4] - 2026-10-07
+
+Compatível com o app 0.1.3; as novidades visíveis (aviso de personagem que quer dar Assemble) pedem o app 0.1.4.
+
+### Adicionado
+- O personagem conhece quem está conversando e não deixa isso explícito: toda resposta, "gerar outra resposta" e a fala de abertura levam notas privadas com o primeiro nome, a bio, o que a pessoa procura, os gostos declarados e o que tem em comum com o personagem. O prompt manda usar isso com naturalidade, sem citar nem dizer que leu o perfil. Bio e "o que procura" passam pelo guardrail; o nome é reduzido a letras. Versão do prompt: `persona-v4`.
+- Personagens que tentam um Assemble: a cada 30 minutos (`OVERTURE_INTERVAL_MINUTES`, 0 desliga), cada usuário ativo recebe o sorteio de um personagem que ainda não decidiu, com a mesma conta do Assemble (compatibilidade, afinidade no Laya e sorte). Com match, fica uma proposta pendente em `users/{uid}/overtures` que o app mostra como "fulano quer dar Assemble com você"; dar Assemble nela sempre vira conexão e não conta no limite por hora. `POST /jobs/overtures` roda uma rodada na hora.
+- `scripts/load_test.py`: teste de carga do chat, com o Laya real e o modelo simulado.
+
+### Alterado
+- O torch usa a cota real de CPU do contêiner (a Discloud mostra 32 núcleos, mas o plano dá cerca de 3,6): cada pergunta ao Laya caiu de 959 ms para cerca de 265 ms.
+- O Laya só recebe as perguntas cujo indício aparece no texto (autoagressão, jailbreak, violência sexual e, na saída, nocivo e canônico): uma mensagem de chat passou de 8 para cerca de 2,7 perguntas, sem mudar nenhum veredito nas frases testadas.
+- A fila do chat tem 12 consumidores (eram 6). Com 50 usuários conversando e um modelo de 8 s, a resposta leva cerca de 9 s no teste de carga (antes, 98 s).
+- Relato de violência sexual passa a receber acolhimento com o Ligue 180, o Disque 100 e o 190, sem chamar o modelo.
+
 ## [0.1.3] - 2026-10-07
 
 **Exige o app 0.1.3 ou mais novo:** o envio de mensagem, "gerar outra resposta" e o Assemble mudaram de contrato.
