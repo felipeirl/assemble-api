@@ -3,6 +3,7 @@ from fastapi import Depends
 from fastapi.testclient import TestClient
 
 from app.auth import ActiveUid, AnyStatusUid, require_jobs_key
+from app.errors import ApiError
 from app.main import create_app
 from tests.conftest import JOBS_KEY, auth_header
 
@@ -14,6 +15,10 @@ def probe_client(container):
     @app.get("/v2/probe")
     def probe(uid: ActiveUid) -> dict[str, str]:
         return {"uid": uid}
+
+    @app.get("/v2/probe-fails")
+    def probe_fails(uid: ActiveUid) -> dict[str, str]:
+        raise ApiError("not_found")
 
     @app.get("/v2/probe-any-status")
     def probe_any_status(uid: AnyStatusUid) -> dict[str, str]:
@@ -92,6 +97,14 @@ def test_authenticated_request_writes_access_log(probe_client, container, clock)
     assert log["ip"] == "203.0.113.7"
     assert log["timestamp"] == clock.now()
     assert (log["expiresAt"] - log["timestamp"]).days == 180
+
+
+def test_access_log_is_written_when_the_route_fails(probe_client, container):
+    response = probe_client.get("/v2/probe-fails", headers=auth_header("u1"))
+
+    assert response.status_code == 404
+    logs = container.store.query("accessLogs")
+    assert [log["route"] for _, log in logs] == ["GET /v2/probe-fails"]
 
 
 def test_jobs_route_requires_key(probe_client):
