@@ -21,6 +21,10 @@ def decisions_path(uid: str) -> str:
     return f"users/{uid}/decisions"
 
 
+def overtures_path(uid: str) -> str:
+    return f"users/{uid}/overtures"
+
+
 def matches_path(uid: str) -> str:
     return f"users/{uid}/matches"
 
@@ -47,6 +51,14 @@ class UserRepository:
     def preferences(self, uid: str) -> Preferences:
         user = self.get(uid) or {}
         return Preferences.model_validate(user.get("preferences") or {})
+
+    def active_ids(self) -> list[str]:
+        """Usuários que terminaram o cadastro e não estão com a conta em carência."""
+        return [
+            uid
+            for uid, doc in self._store.query("users")
+            if doc.get("onboardingCompletedAt") and doc.get("status") != USER_STATUS_DEACTIVATED
+        ]
 
     def looking_for(self, uid: str) -> str | None:
         """Frase escrita pelo usuário: dado não confiável, checado pelo guardrail antes do uso."""
@@ -117,6 +129,28 @@ class DecisionRepository:
     def count_on_date(self, uid: str, date: str) -> int:
         """Decisões tomadas no dia do baralho (a cota diária descontada)."""
         return self._store.count(decisions_path(uid), filters=(("deckDate", "==", date),))
+
+
+class OvertureRepository:
+    """Personagens que "tentaram um Assemble" com o usuário, sem ele saber."""
+
+    def __init__(self, store: DocumentStore) -> None:
+        self._store = store
+
+    def get(self, uid: str, character_id: str) -> dict[str, Any] | None:
+        return self._store.get(f"{overtures_path(uid)}/{character_id}")
+
+    def create(self, uid: str, character_id: str, data: dict[str, Any]) -> bool:
+        return self._store.create(f"{overtures_path(uid)}/{character_id}", data)
+
+    def update(self, uid: str, character_id: str, data: dict[str, Any]) -> None:
+        self._store.update(f"{overtures_path(uid)}/{character_id}", data)
+
+    def ids(self, uid: str) -> set[str]:
+        return {doc_id for doc_id, _ in self._store.query(overtures_path(uid))}
+
+    def pending(self, uid: str) -> list[Document]:
+        return self._store.query(overtures_path(uid), filters=(("status", "==", "pending"),))
 
 
 class MatchRepository:

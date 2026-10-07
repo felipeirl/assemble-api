@@ -24,6 +24,7 @@ from app.repositories import (
     DeckRepository,
     MatchRepository,
     MessageRepository,
+    OvertureRepository,
     PersonaRepository,
     TasteSignalRepository,
     UserRepository,
@@ -33,6 +34,7 @@ from app.services.conversation import ConversationService
 from app.services.decisions import DecisionService
 from app.services.deck import DeckService
 from app.services.onboarding import OnboardingService
+from app.services.overtures import OvertureService
 from app.services.profiles import ProfileService
 from app.services.verification import EmailVerificationService
 from app.store.base import DocumentStore
@@ -112,6 +114,10 @@ class Container:
             "assembles": self.assemble_queue,
             "memory": self.memory_queue,
         }
+
+    @cached_property
+    def overture_service(self) -> OvertureService:
+        return OvertureService(self.users, self.decision_service)
 
     @cached_property
     def reply_queue(self) -> WorkQueue:
@@ -285,6 +291,7 @@ class Container:
                 settings.assembles_per_hour, ASSEMBLE_LIMIT_WINDOW, self.clock
             ),
             assembles=self.assemble_queue,
+            overtures=OvertureRepository(self.store),
             weights=MatchWeights(
                 compatibility=settings.match_weight_compatibility,
                 affinity=settings.match_weight_affinity,

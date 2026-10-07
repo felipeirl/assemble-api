@@ -92,6 +92,18 @@ Mensagem sem `status` (gravada antes desta versão) vale como `sent`.
 - `userMessage.status` é `pending` num envio novo. A resposta do personagem **não vem aqui**: chega pelo Firestore (`messages`), junto com as `suggestions` no documento da conexão.
 - `suggestions`: **3** perguntas curtas, no idioma do `Accept-Language`, gravadas em `matches/{id}.suggestions` a cada resposta. Se a geração falhar, o backend usa modelos fixos a partir dos traços, nunca uma lista vazia sem motivo.
 
+### Overture (documento `overtures/{characterId}`, lido do Firestore)
+Personagem que "tentou um Assemble" com o usuário sem ele saber. A cada 30 minutos (`OVERTURE_INTERVAL_MINUTES`, 0 desliga) o backend sorteia, para cada usuário ativo, um personagem que ele ainda não decidiu e faz a conta do Assemble pelo lado do personagem (compatibilidade, afinidade e sorte).
+
+| Campo | Uso no app |
+|---|---|
+| `status` | `pending`: o personagem quer dar Assemble, mostrar "fulano quer dar assemble com você" dentro do app; `accepted`, `declined`: o usuário respondeu; `skipped`: sem match, ignorar |
+| `createdAt` | ordenação |
+
+- Só um `pending` por usuário. Não há notificação fora do app.
+- O usuário responde pelo fluxo normal: `POST /v2/decisions` do personagem. `ASSEMBLE` num `pending` **sempre** vira conexão e não conta no limite de Assembles; `PASS` marca `declined`.
+- `POST /jobs/overtures` roda uma rodada na hora (X-Jobs-Key).
+
 ### Connection (documento `matches/{characterId}`, lido do Firestore)
 | Campo | Uso no app |
 |---|---|

@@ -6,6 +6,7 @@ no Laya, decisão de match, conexão e fala de abertura): o proxy da Discloud co
 
 import json
 import logging
+import random
 import threading
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -24,6 +25,7 @@ from app.rate_limit import SlidingWindowLimiter
 from app.repositories import (
     DecisionRepository,
     MatchRepository,
+    OvertureRepository,
     PersonaRepository,
     UserRepository,
 )
@@ -40,6 +42,10 @@ STATUS_PENDING = "pending"
 STATUS_MATCHED = "matched"
 STATUS_NOT_MATCHED = "not_matched"
 STATUS_FAILED = "failed"
+OVERTURE_PENDING = "pending"
+OVERTURE_SKIPPED = "skipped"
+OVERTURE_ACCEPTED = "accepted"
+OVERTURE_DECLINED = "declined"
 # Assembles que falharam são retomados sozinhos (ao abrir o baralho) até este número de tentativas.
 MAX_AUTOMATIC_ATTEMPTS = 3
 # Fila cheia: o app tenta de novo depois deste tempo, com a mesma Idempotency-Key.
@@ -63,6 +69,8 @@ class DecisionService:
         weights: MatchWeights,
         assemble_limiter: SlidingWindowLimiter,
         assembles: WorkQueue,
+        overtures: OvertureRepository,
+        rng: random.Random | None = None,
     ) -> None:
         self._catalog = catalog
         self._users = users
@@ -76,6 +84,8 @@ class DecisionService:
         self._weights = weights
         self._assemble_limiter = assemble_limiter
         self._assembles = assembles
+        self._overtures = overtures
+        self._rng = rng or random.Random()
         # (uid, characterId) dos Assembles que estão na fila.
         self._queued: set[tuple[str, str]] = set()
         self._queued_guard = threading.Lock()
@@ -105,19 +115,57 @@ class DecisionService:
         if idempotency_key is not None:
             decision["idempotencyKey"] = idempotency_key
 
+        overture = self._pending_overture(uid, character_id)
         if choice is Choice.PASS:
             if not self._decisions.create(uid, character_id, decision):
                 return self._replay(uid, character_id, idempotency_key, locale)
             self._deck.record_pass(uid, date, character_id)
+            if overture is not None:
+                self._overtures.update(uid, character_id, {"status": OVERTURE_DECLINED})
             return None
 
-        # Cada Assemble usa o Laya e o modelo: o limite protege a capacidade de todos.
-        self._hit_assemble_limit(uid)
         decision.update({"status": STATUS_PENDING, "attempts": 1})
+        if overture is not None:
+            # O personagem já quis: o match está decidido e não gasta Laya nem cota de Assembles.
+            decision.update({"matched": True, "match": overture["match"], "overture": True})
+        else:
+            # Cada Assemble usa o Laya e o modelo: o limite protege a capacidade de todos.
+            self._hit_assemble_limit(uid)
         if not self._decisions.create(uid, character_id, decision):
             return self._replay(uid, character_id, idempotency_key, locale)
+        if overture is not None:
+            self._overtures.update(uid, character_id, {"status": OVERTURE_ACCEPTED})
         self._enqueue_or_fail(uid, character_id, locale)
         return AssembleAccepted(characterId=character_id, status=STATUS_PENDING)
+
+    def _pending_overture(self, uid: str, character_id: str) -> dict[str, Any] | None:
+        found = self._overtures.get(uid, character_id)
+        return found if found and found.get("status") == OVERTURE_PENDING else None
+
+    def overture(self, uid: str) -> bool:
+        """Sorteia um personagem que o usuário ainda não decidiu e "tenta um Assemble" com ele.
+
+        Usa a mesma conta do Assemble do usuário (compatibilidade, afinidade no Laya e sorte). Com
+        match, grava uma proposta pendente que o app mostra como "fulano quer dar assemble com
+        você"; sem match, grava `skipped` só para o personagem não ser sorteado de novo.
+        No máximo uma proposta pendente por usuário. Devolve True se criou uma proposta.
+        """
+        if self._overtures.pending(uid):
+            return False
+        taken = self._decisions.decided_ids(uid) | self._overtures.ids(uid)
+        pool = sorted(set(self._catalog.eligible()) - taken)
+        if not pool:
+            return False
+        character_id = self._rng.choice(pool)
+        character = self._catalog.get(character_id)
+        if character is None:
+            return False
+        outcome = self._outcome(uid, character_id, character)
+        proposal: dict[str, Any] = {"createdAt": self._clock.now(), "status": OVERTURE_SKIPPED}
+        if outcome["matched"]:
+            proposal.update({"status": OVERTURE_PENDING, "match": outcome["match"]})
+        self._overtures.create(uid, character_id, proposal)
+        return bool(outcome["matched"])
 
     def resume_unresolved(self, uid: str, locale: str) -> None:
         """Retoma os Assembles do usuário que ficaram pendentes fora da fila (o servidor reiniciou)

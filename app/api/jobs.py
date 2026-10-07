@@ -37,6 +37,13 @@ def purge(background: BackgroundTasks, container: ContainerDep) -> Response:
     return Response(status_code=ACCEPTED)
 
 
+@router.post("/overtures", status_code=ACCEPTED)
+def overtures(background: BackgroundTasks, container: ContainerDep) -> Response:
+    service = container.overture_service
+    background.add_task(container.job_runner.run_exclusive, "overtures", service.run)
+    return Response(status_code=ACCEPTED)
+
+
 @router.post("/translations", status_code=ACCEPTED)
 def translations(background: BackgroundTasks, container: ContainerDep) -> Response:
     service = container.translation_service

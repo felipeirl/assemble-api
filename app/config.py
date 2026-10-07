@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     memory_chunk_size: int = 30
     messages_per_hour: int = 60
     assembles_per_hour: int = 60
+    # De quanto em quanto tempo um personagem sorteado "tenta um Assemble" com cada usuário, sem ele
+    # saber. 0 desliga. O aviso só aparece dentro do app.
+    overture_interval_minutes: int = 30
     # Assembles esperando na fila; cheia, o Assemble responde 503 com Retry-After.
     assemble_queue_capacity: int = 200
     assemble_workers: int = 4

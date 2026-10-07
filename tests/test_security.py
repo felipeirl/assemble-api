@@ -33,7 +33,7 @@ def test_every_v2_route_requires_firebase_token(client, container):
 def test_every_jobs_route_requires_jobs_key(client, container):
     routes = [r for r in protected_routes(container) if r[1].startswith("/jobs/")]
 
-    assert len(routes) == 4
+    assert len(routes) == 5
     for method, path in routes:
         assert client.request(method, path, headers=auth_header("u1")).status_code == 401
 

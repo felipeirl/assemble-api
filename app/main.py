@@ -12,6 +12,7 @@ from app.api import account, conversations, deck, jobs, onboarding
 from app.config import get_settings
 from app.container import Container, build_container
 from app.errors import install_error_handlers
+from app.services.overtures import run_overtures_every
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 QUEUE_LOG_INTERVAL_SECONDS = 60
@@ -63,6 +64,20 @@ def create_app(container_factory: Callable[[], Container] | None = None) -> Fast
         threading.Thread(
             target=log_queues, args=(container, stop), name="queue-log", daemon=True
         ).start()
+        interval = container.settings.overture_interval_minutes
+        if interval > 0:
+            threading.Thread(
+                target=run_overtures_every,
+                args=(
+                    interval,
+                    lambda: container.job_runner.run_exclusive(
+                        "overtures", container.overture_service.run
+                    ),
+                    stop,
+                ),
+                name="overtures",
+                daemon=True,
+            ).start()
         yield
         stop.set()
 
