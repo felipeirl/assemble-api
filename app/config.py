@@ -71,8 +71,9 @@ class Settings(BaseSettings):
     # Respostas esperando na fila (uma por conversa); cheia, o envio responde 503 com Retry-After.
     chat_queue_capacity: int = 100
     # Respostas geradas ao mesmo tempo: chamadas ao modelo em paralelo (cuidado com o limite de
-    # taxa do provedor). O Laya segue uma inferência por vez.
-    chat_reply_workers: int = 6
+    # taxa do provedor). O Laya segue uma inferência por vez. Com 6, 50 usuários esperavam 24 s
+    # (mediana) por uma resposta de modelo de 8 s; com 12, 9 s (scripts/load_test.py).
+    chat_reply_workers: int = 12
     memory_queue_capacity: int = 20
 
     # Decisão de match (seção 7) — valores iniciais, a calibrar
