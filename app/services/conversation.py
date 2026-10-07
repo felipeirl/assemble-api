@@ -10,11 +10,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from app.ai.chat import BlockedInputError, ChatEngine, ChatRequest, ChatResult, character_context
+from app.ai.chat import (
+    BlockedInputError,
+    ChatEngine,
+    ChatRequest,
+    ChatResult,
+    character_context,
+)
 from app.ai.guardrail import REFERRAL_REASONS, GuardrailUnavailableError
 from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
 from app.ai.memory import MemorySummarizer
 from app.ai.prompts import fallback_suggestions, preview
+from app.ai.user_context import build_user_context
 from app.api.schemas import Message
 from app.clock import Clock
 from app.domain.enums import Author
@@ -161,7 +168,7 @@ class ConversationService:
             locale=locale,
             character=character_context(character_id, character, locale),
             persona=self._personas.get(character_id) or {},
-            looking_for=self._users.looking_for(uid),
+            user=build_user_context(self._users.get(uid), character),
         )
         with provider_errors_as_api_errors(), timed("fala de abertura (total)"):
             return self._engine().respond(request)
@@ -313,6 +320,7 @@ class ConversationService:
             history=self._history(job.uid, job.connection_id),
             message=job.text,
             memory=memory_text(match),
+            user=build_user_context(self._users.get(job.uid), character),
         )
         try:
             with timed("resposta do chat (total)"):
@@ -410,8 +418,8 @@ class ConversationService:
             persona=self._personas.get(job.connection_id) or {},
             history=self._history_from(target.history_docs),
             message=target.text,
-            looking_for=self._users.looking_for(job.uid) if target.mode == "opener" else None,
             memory=memory_text(match),
+            user=build_user_context(self._users.get(job.uid), character),
         )
         try:
             with timed("nova resposta do chat (total)"):

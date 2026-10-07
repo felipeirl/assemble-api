@@ -41,6 +41,21 @@ class BlockedInputError(Exception):
 
 
 @dataclass(frozen=True)
+class UserContext:
+    """O que o app sabe do usuário, para o personagem usar sem dizer que sabe.
+
+    `first_name` já vem limpo; `bio` e `looking_for` são texto livre e passam pelo guardrail antes
+    de entrar no prompt; `preferences` e `in_common` vêm de enums do app.
+    """
+
+    first_name: str | None = None
+    bio: str | None = None
+    looking_for: str | None = None
+    preferences: dict[str, list[str]] = field(default_factory=dict)
+    in_common: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ChatRequest:
     request_id: str
     mode: Literal["opener", "reply"]
@@ -49,8 +64,8 @@ class ChatRequest:
     persona: dict[str, Any]
     history: list[dict[str, str]] = field(default_factory=list)
     message: str = ""
-    # "O que você procura numa conversa?", escrito pelo usuário; só usado na abertura.
-    looking_for: str | None = None
+    # O que o app sabe do usuário (perfil, preferências e o que tem em comum com o personagem).
+    user: UserContext | None = None
     # Resumo do que saiu da janela de histórico (app/ai/memory.py).
     memory: str | None = None
 
@@ -142,6 +157,7 @@ class ChatEngine:
                 prompts.system_prompt(request.locale),
                 prompts.character_block(facts, summary),
                 prompts.persona_block(request.persona),
+                *self._user_blocks(request.user),
                 *([memory_block(request.memory)] if request.memory else []),
             ]
         )
@@ -150,13 +166,29 @@ class ChatEngine:
             role = "user" if item["role"] == "user" else "assistant"
             messages.append({"role": role, "content": item["text"]})
         if request.mode == "opener":
-            looking_for = self._trusted_user_text(request.looking_for)
+            looking_for = self._trusted_user_text(
+                request.user.looking_for if request.user else None
+            )
             instruction = prompts.opener_instruction(request.character["name"], looking_for)
             messages.append({"role": "user", "content": instruction})
         else:
             note = prompts.conversation_move(request.history, request.message)
             messages.append({"role": "user", "content": f"{request.message}\n\n{note}"})
         return messages
+
+    def _user_blocks(self, user: UserContext | None) -> list[str]:
+        """Bloco com o que o app sabe do usuário; vazio quando não há nada a dizer."""
+        if user is None:
+            return []
+        notes: dict[str, Any] = {
+            "firstName": user.first_name,
+            "bio": self._trusted_user_text(user.bio),
+            "lookingForInAConversation": self._trusted_user_text(user.looking_for),
+            "likes": user.preferences or None,
+            "inCommonWithYou": user.in_common or None,
+        }
+        notes = {key: value for key, value in notes.items() if value}
+        return [prompts.user_block(notes)] if notes else []
 
     def _trusted_summary(self, summary: str | None) -> str | None:
         """O resumo da fonte (wiki editável) só entra no prompt se o guardrail aprovar."""
