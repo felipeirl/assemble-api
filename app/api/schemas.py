@@ -1,7 +1,7 @@
 """Objetos do contrato da API V2 (campos em camelCase, ausentes não são enviados)."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -72,12 +72,14 @@ class Message(BaseModel):
     createdAt: datetime
     fictional: bool
     blocked: bool
+    # pending: resposta na fila; sent; blocked: recusada pelo guardrail; failed: tentar de novo.
+    status: Literal["pending", "sent", "blocked", "failed"] = "sent"
 
 
-class CharacterReply(BaseModel):
+class AcceptedMessage(BaseModel):
+    """Mensagem aceita: a resposta do personagem chega depois, pelo Firestore."""
+
     userMessage: Message
-    reply: Message
-    suggestions: list[str]
 
 
 class RegeneratedReply(BaseModel):

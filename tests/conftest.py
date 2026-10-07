@@ -13,7 +13,7 @@ from app.container import Container
 from app.identity import Identity, InvalidTokenError
 from app.main import create_app
 from app.store.memory import MemoryStore
-from tests.fakes import FakeGuardrail, FakeLlm, chat_reply
+from tests.fakes import FakeGuardrail, FakeLlm, FakeQueue, chat_reply
 
 JOBS_KEY = "jobs-secret"
 
@@ -62,7 +62,7 @@ def container(clock: FixedClock) -> Container:
         chat_model="chat-main",
         chat_fallback_model="chat-reserve",
     )
-    return Container(
+    container = Container(
         settings=settings,
         store=MemoryStore(),
         token_verifier=FakeTokenVerifier(),
@@ -70,6 +70,10 @@ def container(clock: FixedClock) -> Container:
         llm=FakeLlm(chat_reply),
         guardrail=FakeGuardrail(),
     )
+    # Filas que rodam na hora: o efeito da resposta do chat já está gravado ao fim do pedido.
+    container.__dict__["reply_queue"] = FakeQueue()
+    container.__dict__["memory_queue"] = FakeQueue()
+    return container
 
 
 @pytest.fixture

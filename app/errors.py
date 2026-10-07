@@ -14,6 +14,7 @@ STATUS_BY_CODE = {
     "nothing_to_undo": 409,
     "already_decided": 409,
     "nothing_to_regenerate": 409,
+    "reply_pending": 409,
     "blocked_content": 422,
     "rate_limited": 429,
     "provider_unavailable": 503,
@@ -47,6 +48,10 @@ MESSAGES = {
     "nothing_to_regenerate": {
         EN: "There is no character reply to regenerate.",
         PT_BR: "Não há resposta do personagem para gerar de novo.",
+    },
+    "reply_pending": {
+        EN: "Wait for the reply to your last message.",
+        PT_BR: "Espere a resposta da sua última mensagem.",
     },
     "already_decided": {
         EN: "You have already decided on this character.",

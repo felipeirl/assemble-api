@@ -2,9 +2,11 @@
 
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -13,7 +15,7 @@ from app.ai.guardrail import GuardrailUnavailableError
 from app.ai.llm import InvalidModelOutputError, LlmUnavailableError
 from app.ai.memory import MemorySummarizer
 from app.ai.prompts import fallback_suggestions, preview
-from app.api.schemas import CharacterReply, Message, RegeneratedReply
+from app.api.schemas import Message, RegeneratedReply
 from app.clock import Clock
 from app.domain.enums import Author
 from app.errors import ApiError
@@ -25,13 +27,19 @@ from app.repositories import (
     PersonaRepository,
     UserRepository,
 )
-from app.store.base import DELETE_FIELD, Increment
+from app.store.base import DELETE_FIELD, DocumentNotFoundError, Increment
 from app.timing import timed
+from app.work_queue import WorkQueue
 
 logger = logging.getLogger(__name__)
+timing_logger = logging.getLogger("app.timing")
 
+STATUS_PENDING = "pending"
 STATUS_SENT = "sent"
 STATUS_BLOCKED = "blocked"
+STATUS_FAILED = "failed"
+# Fila cheia: o app tenta de novo depois deste tempo, com a mesma Idempotency-Key.
+QUEUE_FULL_RETRY_AFTER = 10
 PROVIDER_ERRORS = (LlmUnavailableError, GuardrailUnavailableError, InvalidModelOutputError)
 # Garante que a resposta fique depois da mensagem do usuário na ordenação por createdAt.
 REPLY_MIN_GAP = timedelta(milliseconds=1)
@@ -48,6 +56,31 @@ def memory_text(match: dict[str, Any] | None) -> str | None:
 
 def new_message_id() -> str:
     return f"m_{uuid.uuid4().hex}"
+
+
+@dataclass(frozen=True)
+class ReplyJob:
+    """Resposta a gerar na fila. O texto só fica em memória até passar pelo filtro de entrada."""
+
+    uid: str
+    connection_id: str
+    message_id: str
+    text: str
+    locale: str
+    user_at: datetime
+
+
+def pending_user_message(created_at: datetime, idempotency_key: str) -> dict[str, Any]:
+    return {
+        "author": Author.USER.value,
+        "text": "",
+        "createdAt": created_at,
+        "status": STATUS_PENDING,
+        "fictional": False,
+        "blocked": False,
+        "hidden": False,
+        "idempotencyKey": idempotency_key,
+    }
 
 
 @contextmanager
@@ -71,6 +104,8 @@ class ConversationService:
         limiter: SlidingWindowLimiter,
         clock: Clock,
         history_limit: int,
+        replies: WorkQueue,
+        background: WorkQueue,
         memory: MemorySummarizer | None = None,
         memory_batch: int = 10,
         memory_chunk: int = 30,
@@ -88,10 +123,12 @@ class ConversationService:
         self._memory_batch = memory_batch
         self._memory_chunk = memory_chunk
         self._memory_running: set[tuple[str, str]] = set()
-        # Uma Idempotency-Key por vez: o app repete o pedido quando estoura o tempo, e a repetição
-        # não pode correr junto com o pedido original (a mensagem seria processada duas vezes).
-        self._key_locks: dict[tuple[str, str, str], list[Any]] = {}
-        self._key_locks_guard = threading.Lock()
+        self._replies = replies
+        self._background = background
+        self._conversation_locks: dict[tuple[str, str], list[Any]] = {}
+        # (uid, conversa) -> id da mensagem do usuário que está na fila.
+        self._queued: dict[tuple[str, str], str] = {}
+        self._locks_guard = threading.Lock()
 
     def generate_opener(
         self, uid: str, character_id: str, character: dict[str, Any], locale: str
@@ -124,68 +161,157 @@ class ConversationService:
         text: str,
         idempotency_key: str | None,
         locale: str,
-    ) -> CharacterReply:
-        if idempotency_key is None:
-            return self._send(uid, connection_id, text, idempotency_key, locale)
-        with self._serialized((uid, connection_id, idempotency_key)):
-            return self._send(uid, connection_id, text, idempotency_key, locale)
+    ) -> Message:
+        """Grava a mensagem como pendente e põe a resposta na fila; devolve a mensagem do usuário.
+
+        A resposta do personagem chega pelo Firestore. A mensagem pendente é gravada sem o texto:
+        ele só vai para o Firestore depois de passar pelo filtro de entrada.
+        """
+        self._open_connection(uid, connection_id)
+        self._engine()
+        key = idempotency_key or new_message_id()
+        with self._serialized((uid, connection_id)):
+            found = self._messages.by_idempotency_key(uid, connection_id, key)
+            if found:
+                message_id, doc = found[0]
+                return self._resume(uid, connection_id, message_id, doc, text, locale)
+            self._ensure_idle(uid, connection_id)
+            self._hit_rate_limit(uid)
+            user_at = self._clock.now()
+            message_id = new_message_id()
+            doc = pending_user_message(user_at, key)
+            self._messages.add(uid, connection_id, message_id, doc)
+            self._enqueue(ReplyJob(uid, connection_id, message_id, text, locale, user_at))
+            return to_message(message_id, connection_id, {**doc, "text": text})
+
+    def _resume(
+        self,
+        uid: str,
+        connection_id: str,
+        message_id: str,
+        doc: dict[str, Any],
+        text: str,
+        locale: str,
+    ) -> Message:
+        """Mesma Idempotency-Key: devolve o estado gravado ou retoma o que falhou ou se perdeu.
+
+        Uma mensagem pendente fora da fila ficou órfã (o processo reiniciou) e volta para a fila.
+        """
+        status = doc.get("status")
+        retry = status == STATUS_FAILED or (
+            status == STATUS_PENDING and not self._is_queued(uid, connection_id, message_id)
+        )
+        if retry:
+            self._ensure_idle(uid, connection_id)
+            self._hit_rate_limit(uid)
+            self._messages.update(
+                uid,
+                connection_id,
+                message_id,
+                {"status": STATUS_PENDING, "errorCode": DELETE_FIELD},
+            )
+            job = ReplyJob(uid, connection_id, message_id, text, locale, doc["createdAt"])
+            self._enqueue(job)
+            doc = {**doc, "status": STATUS_PENDING}
+        return to_message(message_id, connection_id, {**doc, "text": doc.get("text") or text})
 
     @contextmanager
-    def _serialized(self, key: tuple[str, str, str]) -> Iterator[None]:
-        """Pedidos com a mesma chave esperam o primeiro terminar e então repetem a resposta."""
-        with self._key_locks_guard:
-            entry = self._key_locks.setdefault(key, [threading.Lock(), 0])
+    def _serialized(self, key: tuple[str, str]) -> Iterator[None]:
+        """Envios da mesma conversa, um por vez: a repetição de um pedido que estourou o tempo
+        não pode correr junto com o original (a mensagem entraria duas vezes na fila)."""
+        with self._locks_guard:
+            entry = self._conversation_locks.setdefault(key, [threading.Lock(), 0])
             entry[1] += 1
         try:
             with entry[0]:
                 yield
         finally:
-            with self._key_locks_guard:
+            with self._locks_guard:
                 entry[1] -= 1
                 if entry[1] == 0:
-                    self._key_locks.pop(key, None)
+                    self._conversation_locks.pop(key, None)
 
-    def _send(
-        self,
-        uid: str,
-        connection_id: str,
-        text: str,
-        idempotency_key: str | None,
-        locale: str,
-    ) -> CharacterReply:
-        match = self._matches.get(uid, connection_id)
-        if match is None or match.get("hidden"):
-            raise ApiError("not_found")
-        if idempotency_key is not None:
-            replayed = self._replay(uid, connection_id, text, idempotency_key)
-            if replayed is not None:
-                return replayed
-        character = self._characters.get(connection_id)
-        if character is None:
-            raise ApiError("not_found")
-        retry_after = self._limiter.hit(uid)
-        if retry_after is not None:
-            raise ApiError("rate_limited", headers={"Retry-After": str(retry_after)})
+    def _is_queued(self, uid: str, connection_id: str, message_id: str) -> bool:
+        with self._locks_guard:
+            return self._queued.get((uid, connection_id)) == message_id
 
-        user_at = self._clock.now()
+    def _ensure_idle(self, uid: str, connection_id: str) -> None:
+        """Uma resposta pendente por conversa: ninguém ocupa a fila com uma rajada de mensagens."""
+        with self._locks_guard:
+            if (uid, connection_id) in self._queued:
+                raise ApiError("reply_pending")
+
+    def _enqueue(self, job: ReplyJob) -> None:
+        key = (job.uid, job.connection_id)
+        with self._locks_guard:
+            self._queued[key] = job.message_id
+        queued_at = time.perf_counter()
+        if self._replies.submit(lambda: self._answer(job, queued_at)):
+            return
+        with self._locks_guard:
+            self._queued.pop(key, None)
+        self._settle(job, {"status": STATUS_FAILED, "errorCode": "provider_unavailable"})
+        raise ApiError("provider_unavailable", headers={"Retry-After": str(QUEUE_FULL_RETRY_AFTER)})
+
+    def _answer(self, job: ReplyJob, queued_at: float) -> None:
+        """Roda na fila: gera a resposta, grava a troca e agenda o resumo da conversa.
+
+        Qualquer falha marca a mensagem como `failed`: ela nunca fica pendente para sempre.
+        """
+        timing_logger.info("tempo espera na fila: %d ms", (time.perf_counter() - queued_at) * 1000)
+        try:
+            self._reply(job)
+        except Exception:
+            logger.exception("Resposta do chat falhou sem tratamento.")
+            self._settle(job, {"status": STATUS_FAILED, "errorCode": "provider_unavailable"})
+        finally:
+            with self._locks_guard:
+                self._queued.pop((job.uid, job.connection_id), None)
+        self._background.submit(lambda: self.refresh_memory(job.uid, job.connection_id, job.locale))
+
+    def _reply(self, job: ReplyJob) -> None:
+        match = self._matches.get(job.uid, job.connection_id)
+        character = self._characters.get(job.connection_id)
+        if match is None or match.get("hidden") or character is None:
+            logger.info("Resposta descartada: a conversa não está mais aberta.")
+            return
+        if self._messages.get(job.uid, job.connection_id, job.message_id) is None:
+            logger.info("Resposta descartada: a mensagem do usuário foi apagada.")
+            return
         request = ChatRequest(
             request_id=str(uuid.uuid4()),
             mode="reply",
-            locale=locale,
-            character=character_context(connection_id, character, locale),
-            persona=self._personas.get(connection_id) or {},
-            history=self._history(uid, connection_id),
-            message=text,
+            locale=job.locale,
+            character=character_context(job.connection_id, character, job.locale),
+            persona=self._personas.get(job.connection_id) or {},
+            history=self._history(job.uid, job.connection_id),
+            message=job.text,
             memory=memory_text(match),
         )
         try:
-            with provider_errors_as_api_errors(), timed("resposta do chat (total)"):
+            with timed("resposta do chat (total)"):
                 result = self._engine().respond(request)
         except BlockedInputError as exc:
-            self._save_blocked_input(uid, connection_id, exc.reason, user_at, idempotency_key)
-            raise ApiError("blocked_content") from exc
+            self._settle(
+                job, {"status": STATUS_BLOCKED, "blocked": True, "blockReason": exc.reason}
+            )
+            return
+        except (*PROVIDER_ERRORS, ApiError) as exc:
+            logger.warning("Resposta do chat falhou: %s", type(exc).__name__)
+            self._settle(job, {"status": STATUS_FAILED, "errorCode": "provider_unavailable"})
+            return
         with timed("gravacao da troca"):
-            return self._save_exchange(uid, connection_id, text, result, user_at, idempotency_key)
+            self._save_exchange(job, result)
+
+    def _settle(self, job: ReplyJob, fields: dict[str, Any]) -> bool:
+        """Atualiza a mensagem do usuário; False se ela já não existe (voltar a conversa, conta
+        apagada): nesse caso nada mais é gravado."""
+        try:
+            self._messages.update(job.uid, job.connection_id, job.message_id, fields)
+        except DocumentNotFoundError:
+            logger.info("Resposta descartada: a mensagem do usuário foi apagada.")
+            return False
+        return True
 
     def regenerate(self, uid: str, connection_id: str, locale: str) -> RegeneratedReply:
         """Gera outra resposta no lugar da última do personagem (mesma mensagem, texto novo)."""
@@ -289,7 +415,7 @@ class ConversationService:
         if self._memory is None:
             return
         key = (uid, connection_id)
-        with self._key_locks_guard:
+        with self._locks_guard:
             if key in self._memory_running:
                 return
             self._memory_running.add(key)
@@ -300,7 +426,7 @@ class ConversationService:
         except Exception:
             logger.exception("Resumo da conversa falhou.")
         finally:
-            with self._key_locks_guard:
+            with self._locks_guard:
                 self._memory_running.discard(key)
 
     def _fold_into_memory(self, uid: str, connection_id: str, locale: str) -> None:
@@ -348,94 +474,37 @@ class ConversationService:
         if retry_after is not None:
             raise ApiError("rate_limited", headers={"Retry-After": str(retry_after)})
 
-    def _save_exchange(
-        self,
-        uid: str,
-        connection_id: str,
-        text: str,
-        result: ChatResult,
-        user_at: datetime,
-        idempotency_key: str | None,
-    ) -> CharacterReply:
-        reply_at = max(self._clock.now(), user_at + REPLY_MIN_GAP)
-        user_id, reply_id = new_message_id(), new_message_id()
+    def _save_exchange(self, job: ReplyJob, result: ChatResult) -> None:
+        match = self._matches.get(job.uid, job.connection_id)
+        if match is None or match.get("hidden"):
+            logger.info("Resposta descartada: a conversa foi apagada enquanto era gerada.")
+            return
+        reply_at = max(self._clock.now(), job.user_at + REPLY_MIN_GAP)
+        reply_id = new_message_id()
         input_blocked = result.blocked and result.block_reason == "self_harm"
-        user_doc: dict[str, Any] = {
-            "author": Author.USER.value,
+        user_fields: dict[str, Any] = {
             # Texto recusado pelo guardrail nunca é guardado, só o motivo.
-            "text": "" if input_blocked else text,
-            "createdAt": user_at,
+            "text": "" if input_blocked else job.text,
             "status": STATUS_BLOCKED if input_blocked else STATUS_SENT,
-            "fictional": False,
             "blocked": input_blocked,
-            "hidden": False,
             "replyId": reply_id,
         }
         if input_blocked:
-            user_doc["blockReason"] = result.block_reason
-        if idempotency_key is not None:
-            user_doc["idempotencyKey"] = idempotency_key
-        reply_doc = character_message(result, reply_at)
-
-        self._messages.add(uid, connection_id, user_id, user_doc)
-        self._messages.add(uid, connection_id, reply_id, reply_doc)
+            user_fields["blockReason"] = result.block_reason
+        if not self._settle(job, user_fields):
+            return
+        self._messages.add(
+            job.uid, job.connection_id, reply_id, character_message(result, reply_at)
+        )
         self._matches.update(
-            uid,
-            connection_id,
+            job.uid,
+            job.connection_id,
             {
                 "lastMessageAt": reply_at,
                 "lastMessagePreview": preview(result.reply),
                 "suggestions": result.suggestions,
                 "userMessageCount": Increment(1),
             },
-        )
-        return CharacterReply(
-            userMessage=to_message(user_id, connection_id, {**user_doc, "text": text}),
-            reply=to_message(reply_id, connection_id, reply_doc),
-            suggestions=result.suggestions,
-        )
-
-    def _save_blocked_input(
-        self,
-        uid: str,
-        connection_id: str,
-        reason: str,
-        created_at: datetime,
-        idempotency_key: str | None,
-    ) -> None:
-        doc: dict[str, Any] = {
-            "author": Author.USER.value,
-            "text": "",
-            "createdAt": created_at,
-            "status": STATUS_BLOCKED,
-            "fictional": False,
-            "blocked": True,
-            "blockReason": reason,
-            "hidden": False,
-        }
-        if idempotency_key is not None:
-            doc["idempotencyKey"] = idempotency_key
-        self._messages.add(uid, connection_id, new_message_id(), doc)
-
-    def _replay(
-        self, uid: str, connection_id: str, text: str, idempotency_key: str
-    ) -> CharacterReply | None:
-        """Mesma Idempotency-Key devolve a mesma resposta, sem chamar o modelo de novo."""
-        found = self._messages.by_idempotency_key(uid, connection_id, idempotency_key)
-        if not found:
-            return None
-        user_id, user_doc = found[0]
-        if user_doc.get("replyId") is None:
-            raise ApiError("blocked_content")
-        reply_doc = self._messages.get(uid, connection_id, user_doc["replyId"])
-        if reply_doc is None:
-            return None
-        match = self._matches.get(uid, connection_id) or {}
-        shown_text = user_doc["text"] or text
-        return CharacterReply(
-            userMessage=to_message(user_id, connection_id, {**user_doc, "text": shown_text}),
-            reply=to_message(user_doc["replyId"], connection_id, reply_doc),
-            suggestions=match.get("suggestions") or [],
         )
 
     def _history(self, uid: str, connection_id: str) -> list[dict[str, str]]:
@@ -483,4 +552,5 @@ def to_message(message_id: str, connection_id: str, doc: dict[str, Any]) -> Mess
         createdAt=doc["createdAt"],
         fictional=bool(doc.get("fictional")),
         blocked=bool(doc.get("blocked")),
+        status=doc.get("status", STATUS_SENT),
     )

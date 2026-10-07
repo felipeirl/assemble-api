@@ -36,6 +36,7 @@ from app.services.onboarding import OnboardingService
 from app.services.profiles import ProfileService
 from app.services.verification import EmailVerificationService
 from app.store.base import DocumentStore
+from app.work_queue import WorkQueue
 
 if TYPE_CHECKING:
     from app.ai.guardrail import Guardrail
@@ -104,6 +105,16 @@ class Container:
         )
 
     @cached_property
+    def reply_queue(self) -> WorkQueue:
+        """Respostas do chat, uma por vez, fora da requisição."""
+        return WorkQueue("chat-replies", self.settings.chat_queue_capacity)
+
+    @cached_property
+    def memory_queue(self) -> WorkQueue:
+        """Resumos das conversas: separados para não atrasar as respostas."""
+        return WorkQueue("chat-memory", self.settings.memory_queue_capacity)
+
+    @cached_property
     def conversation_service(self) -> ConversationService:
         return ConversationService(
             chat=self.chat_engine,
@@ -117,6 +128,8 @@ class Container:
             ),
             clock=self.clock,
             history_limit=self.settings.chat_history_limit,
+            replies=self.reply_queue,
+            background=self.memory_queue,
             memory=self.memory_summarizer,
             memory_batch=self.settings.memory_batch_size,
             memory_chunk=self.settings.memory_chunk_size,

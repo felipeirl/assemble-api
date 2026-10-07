@@ -13,7 +13,7 @@ Contrato entre o app Android e o backend Python. Em rotas, formatos e erros, est
 | Formato | JSON, campos em `camelCase`. Datas em ISO-8601 com fuso (`2026-10-01T03:00:00Z`). |
 | Enums | Nomes exatos do app: `Origin`, `PowerFamily`, `Team`, `Style` (lista em §7). `choice`: `PASS` / `ASSEMBLE`. |
 | Campos ausentes | Fato que a fonte não tem **não vem** no JSON (nunca `null` inventado, nunca string vazia). |
-| Idempotência | `POST /v2/decisions` e `POST /v2/connections/{id}/messages` aceitam `Idempotency-Key` (uuid do app); repetir a mesma chave devolve a mesma resposta. |
+| Idempotência | `POST /v2/decisions` e `POST /v2/connections/{id}/messages` aceitam `Idempotency-Key` (uuid do app); repetir a mesma chave devolve a mesma resposta. Na mensagem, repetir também retoma o envio que falhou ou se perdeu (ver §4). |
 | Compatibilidade | **Nunca** aparece antes da conexão: sem faixa, sem porcentagem, em nenhuma rota. |
 
 ## 2. Leitura e escrita: quem faz o quê
@@ -71,20 +71,29 @@ Contrato entre o app Android e o backend Python. Em rotas, formatos e erros, est
   "text": "…",
   "createdAt": "2026-10-01T15:04:00Z",
   "fictional": true,
-  "blocked": false
+  "blocked": false,
+  "status": "pending | sent | blocked | failed"
 }
 ```
 `fictional` é sempre `true` em mensagem do personagem (o app mostra "AI-generated · fictional").
 
-### CharacterReply (resposta do envio)
+`status` (também gravado no documento da mensagem do usuário no Firestore):
+
+| `status` | Significado | O app faz |
+|---|---|---|
+| `pending` | resposta na fila; o documento ainda **não tem o texto** (`text = ""`) | mostra a cópia local da mensagem e o "digitando" |
+| `sent` | respondida; o documento tem o texto e `replyId` | mensagem normal |
+| `blocked` | recusada pelo guardrail; o texto nunca é gravado (`blockReason` diz o motivo). Em `self_harm`, a resposta do personagem é o encaminhamento ao CVV | balão com aviso |
+| `failed` | a resposta não pôde ser gerada (`errorCode`, hoje sempre `provider_unavailable`) | "Try again": reenvia com a **mesma** `Idempotency-Key` |
+
+Mensagem sem `status` (gravada antes desta versão) vale como `sent`.
+
+### AcceptedMessage (resposta do envio)
 ```json
-{
-  "userMessage": Message,
-  "reply": Message,
-  "suggestions": ["Como é controlar o clima?", "O que você faz num dia de folga?", "Algum conselho para mim?"]
-}
+{ "userMessage": Message }
 ```
-- `suggestions`: **3** perguntas curtas, no idioma do `Accept-Language`, geradas na mesma chamada da IA. Se a geração falhar, o backend usa modelos fixos a partir dos traços (como o app faz hoje), nunca devolve lista vazia sem motivo.
+- `userMessage.status` é `pending` num envio novo. A resposta do personagem **não vem aqui**: chega pelo Firestore (`messages`), junto com as `suggestions` no documento da conexão.
+- `suggestions`: **3** perguntas curtas, no idioma do `Accept-Language`, gravadas em `matches/{id}.suggestions` a cada resposta. Se a geração falhar, o backend usa modelos fixos a partir dos traços, nunca uma lista vazia sem motivo.
 
 ### Connection (documento `matches/{characterId}`, lido do Firestore)
 | Campo | Uso no app |
@@ -156,7 +165,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 | POST | `/v2/decisions` | `{ "characterId", "choice": "PASS" \| "ASSEMBLE" }` | PASS: `204`; ASSEMBLE: `MatchResult` | swipe, botões, pré-visualização |
 | POST | `/v2/decisions/undo` | — | `DeckCard` (volta ao topo) | botão Undo |
 | GET | `/v2/characters/{id}` | — | `CharacterPreview` ou `CharacterProfile` | pré-visualização, perfil |
-| POST | `/v2/connections/{id}/messages` | `{ "text" }` (1–1000 caracteres) | `CharacterReply` | conversa, respostas sugeridas |
+| POST | `/v2/connections/{id}/messages` | `{ "text" }` (1–1000 caracteres) | `202` `AcceptedMessage` | conversa |
 | POST | `/v2/connections/{id}/messages/regenerate` | — | `{ reply, suggestions }` | "Gerar outra resposta" |
 | POST | `/v2/connections/{id}/messages/rewind` | `{ "messageId" }` | `204` | "Voltar a conversa" |
 | GET | `/v2/onboarding/reaction-cards` | — | `{ cards: [DeckCard] }` | cadastro: rodada "este ou aquele" |
@@ -171,6 +180,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 
 Notas:
 - **Conexão e fala de abertura**: quando `matched = true`, o backend já grava a conexão e a primeira mensagem do personagem (com `suggestions`) antes de responder. O app abre o pop-up F com o `MatchResult` e a conversa já tem a fala ao entrar.
+- **Envio de mensagem (assíncrono)**: o backend grava a mensagem do usuário como `pending` (sem o texto) e responde `202` na hora; uma fila gera a resposta e grava a troca no Firestore. Uma resposta pendente por conversa: outra mensagem antes dela dá `409 reply_pending`. Repetir com a mesma `Idempotency-Key` devolve o estado gravado; se ele for `failed`, ou `pending` perdido num reinício do servidor, a mensagem volta para a fila (conta no limite por hora). Se a conversa for apagada ou voltada enquanto a resposta está na fila, a resposta é descartada.
 - **Undo**: só o último Pass do dia, uma vez. Sem Pass para desfazer → `409 nothing_to_undo`.
 - **Pré-visualização a partir do card**: o app já tem `name` e `imageUrl` do `DeckCard` (a arte aparece na hora); a rota completa o resto.
 - **Mudança de preferências** no meio do dia **não** refaz o baralho do dia; vale a partir do próximo.
@@ -190,9 +200,10 @@ Formato: `{ "error": "codigo", "message": "texto no idioma do Accept-Language" }
 | 403 | `email_not_verified` | cadastro por e-mail e senha sem o e-mail confirmado | tela "Confirme o seu e-mail" |
 | 404 | `not_found` | personagem/conexão não existe | estado "Unavailable" |
 | 409 | `nothing_to_undo`, `nothing_to_regenerate`, `already_decided` | Undo sem Pass; nada para regenerar; decisão repetida sem a mesma `Idempotency-Key` | some com o botão / usa a decisão gravada |
-| 422 | `blocked_content` | mensagem do usuário recusada pela Laya **antes** de chegar ao modelo | balão com aviso, sem resposta do personagem |
+| 409 | `reply_pending` | mensagem nova antes da resposta da anterior | espera a resposta chegar pelo Firestore |
+| 422 | `blocked_content` | regenerar a partir de uma mensagem recusada pela Laya (no envio, a recusa vem como `status = blocked` no Firestore) | balão com aviso, sem resposta do personagem |
 | 429 | `rate_limited` | limite de mensagens (ex.: 60/hora) | aviso com o tempo de espera (`Retry-After`) |
-| 503 | `provider_unavailable` | modelo/guardrail fora | "Try again" na mensagem |
+| 503 | `provider_unavailable` | modelo/guardrail fora; no envio de mensagem, fila de respostas cheia (com `Retry-After`) | "Try again" na mensagem |
 
 Conteúdo recusado na **saída** do modelo não é erro: vem uma resposta segura, em personagem, com `blocked = true` gravado.
 

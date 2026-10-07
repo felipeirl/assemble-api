@@ -7,6 +7,32 @@ from app.ai.llm import LlmResponse, LlmUnavailableError
 DEFAULT_SUGGESTIONS = ["Como é voar?", "Qual sua missão?", "Algum conselho?"]
 
 
+class FakeQueue:
+    """Fila dos testes: roda a tarefa na hora ou, com `hold`, guarda para `run_pending`."""
+
+    def __init__(self, capacity: int | None = None) -> None:
+        self.capacity = capacity
+        self.hold = False
+        self.pending: list[Callable[[], None]] = []
+
+    def submit(self, task: Callable[[], None]) -> bool:
+        if self.capacity is not None and len(self.pending) >= self.capacity:
+            return False
+        if self.hold:
+            self.pending.append(task)
+        else:
+            task()
+        return True
+
+    def run_pending(self) -> None:
+        tasks, self.pending = self.pending, []
+        for task in tasks:
+            task()
+
+    def wait_idle(self) -> None:
+        self.run_pending()
+
+
 class FakeLlm:
     """Responde com o texto produzido por `reply(messages)`; registra cada chamada."""
 

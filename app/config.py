@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     memory_batch_size: int = 10
     memory_chunk_size: int = 30
     messages_per_hour: int = 60
+    # Respostas esperando na fila (uma por conversa); cheia, o envio responde 503 com Retry-After.
+    chat_queue_capacity: int = 50
+    memory_queue_capacity: int = 20
 
     # Decisão de match (seção 7) — valores iniciais, a calibrar
     match_weight_compatibility: float = 0.6

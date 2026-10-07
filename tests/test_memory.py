@@ -146,7 +146,7 @@ def test_sending_a_message_updates_the_summary_after_replying(client, connected,
         "/v2/connections/storm/messages", json={"text": "oi de novo"}, headers=HEADERS
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert memory(connected)["folded"] >= 21
 
 

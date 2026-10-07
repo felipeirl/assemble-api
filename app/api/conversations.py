@@ -1,8 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, Response
+from fastapi import APIRouter, Response
 
 from app.api.schemas import (
+    AcceptedMessage,
     CharacterIdPath,
-    CharacterReply,
     CharacterView,
     PhotoSignature,
     RegeneratedReply,
@@ -16,6 +16,7 @@ from app.errors import ApiError
 from app.request_context import IdempotencyKey, Locale
 
 NO_CONTENT = 204
+ACCEPTED = 202
 
 router = APIRouter(prefix="/v2")
 
@@ -33,7 +34,8 @@ def get_character(
 
 @router.post(
     "/connections/{connection_id}/messages",
-    response_model=CharacterReply,
+    status_code=ACCEPTED,
+    response_model=AcceptedMessage,
     response_model_exclude_none=True,
 )
 def send_message(
@@ -43,12 +45,10 @@ def send_message(
     key: IdempotencyKey,
     locale: Locale,
     container: ContainerDep,
-    background: BackgroundTasks,
-) -> CharacterReply:
-    reply = container.conversation_service.send(uid, connection_id, body.text, key, locale)
-    # O resumo da conversa é atualizado depois de responder: o usuário nunca espera por ele.
-    background.add_task(container.conversation_service.refresh_memory, uid, connection_id, locale)
-    return reply
+) -> AcceptedMessage:
+    # A resposta do personagem é gerada na fila e chega ao app pelo Firestore.
+    message = container.conversation_service.send(uid, connection_id, body.text, key, locale)
+    return AcceptedMessage(userMessage=message)
 
 
 @router.post(

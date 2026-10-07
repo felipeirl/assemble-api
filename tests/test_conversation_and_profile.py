@@ -1,3 +1,4 @@
+import threading
 from datetime import timedelta
 
 import pytest
@@ -32,6 +33,20 @@ def send(client, text, key=None, connection="storm"):
 def messages(container, connection="storm"):
     docs = container.store.query(f"users/{UID}/matches/{connection}/messages", order_by="createdAt")
     return [doc for _, doc in docs]
+
+
+def stored_message(container, message_id, connection="storm"):
+    return container.store.get(f"users/{UID}/matches/{connection}/messages/{message_id}")
+
+
+def exchange(container, user_id, connection="storm"):
+    """Mensagem do usuário e a resposta gravada para ela (None se não houve resposta)."""
+    user = stored_message(container, user_id, connection)
+    reply_id = user.get("replyId")
+    reply = (
+        {"id": reply_id, **stored_message(container, reply_id, connection)} if reply_id else None
+    )
+    return {"userMessage": {"id": user_id, **user}, "reply": reply}
 
 
 # --- GET /v2/characters/{id} --------------------------------------------------------------
@@ -210,25 +225,74 @@ def test_unknown_character_is_404(client, container):
 # --- POST /v2/connections/{id}/messages ---------------------------------------------------
 
 
-def test_send_message_returns_reply_and_updates_connection(client, connected, clock):
+def test_send_message_is_accepted_and_the_reply_is_stored(client, connected, clock):
     response = send(client, "  Oi, Storm!  ")
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["userMessage"]["author"] == "USER"
-    assert body["userMessage"]["text"] == "Oi, Storm!"
-    assert body["userMessage"]["fictional"] is False
-    assert body["reply"]["author"] == "CHARACTER"
-    assert body["reply"]["fictional"] is True
-    assert body["reply"]["blocked"] is False
-    assert body["reply"]["text"] == "Resposta a: Oi, Storm!"
-    assert body["suggestions"] == DEFAULT_SUGGESTIONS
+    assert response.status_code == 202
+    user_message = response.json()["userMessage"]
+    assert user_message["author"] == "USER"
+    assert user_message["text"] == "Oi, Storm!"
+    assert user_message["fictional"] is False
+    assert user_message["status"] == "pending"
 
+    stored = exchange(connected, user_message["id"])
+    assert stored["userMessage"]["status"] == "sent"
+    assert stored["userMessage"]["text"] == "Oi, Storm!"
+    reply = stored["reply"]
+    assert reply["author"] == "CHARACTER"
+    assert reply["fictional"] is True
+    assert reply["blocked"] is False
+    assert reply["text"] == "Resposta a: Oi, Storm!"
     match = connected.store.get(f"users/{UID}/matches/storm")
+    assert match["suggestions"] == DEFAULT_SUGGESTIONS
     assert match["userMessageCount"] == 1
     assert match["lastMessagePreview"] == "Resposta a: Oi, Storm!"
-    stored = messages(connected)
-    assert [m["author"] for m in stored] == ["CHARACTER", "USER", "CHARACTER"]
+    assert [m["author"] for m in messages(connected)] == ["CHARACTER", "USER", "CHARACTER"]
+
+
+def test_pending_message_is_stored_without_its_text(client, connected):
+    connected.reply_queue.hold = True
+    calls = len(connected.llm.calls)
+
+    response = send(client, "meu segredo", key="k1")
+
+    pending = stored_message(connected, response.json()["userMessage"]["id"])
+    assert pending["status"] == "pending"
+    assert pending["text"] == ""
+    assert pending["idempotencyKey"] == "k1"
+    assert len(connected.llm.calls) == calls
+    connected.reply_queue.run_pending()
+    assert stored_message(connected, response.json()["userMessage"]["id"])["text"] == "meu segredo"
+
+
+def test_second_message_waits_for_the_pending_reply(client, connected):
+    connected.reply_queue.hold = True
+    send(client, "primeira", key="k1")
+
+    response = send(client, "segunda", key="k2")
+
+    assert response.status_code == 409
+    assert response.json()["error"] == "reply_pending"
+    connected.reply_queue.run_pending()
+    assert send(client, "segunda", key="k2").status_code == 202
+
+
+def test_full_queue_is_503_and_the_message_can_be_retried(client, connected):
+    connected.reply_queue.hold = True
+    connected.reply_queue.capacity = 0
+
+    response = send(client, "Oi", key="k1")
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "10"
+    failed = messages(connected)[-1]
+    assert failed["status"] == "failed"
+    assert failed["errorCode"] == "provider_unavailable"
+    connected.reply_queue.capacity = None
+    connected.reply_queue.hold = False
+    retried = send(client, "Oi", key="k1")
+    assert retried.status_code == 202
+    assert exchange(connected, retried.json()["userMessage"]["id"])["reply"] is not None
 
 
 def test_history_is_sent_to_the_model(client, connected):
@@ -252,12 +316,12 @@ def test_history_is_limited(client, connected):
     assert len(connected.llm.calls[-1]["messages"]) == 1 + 2 + 1
 
 
-def test_blocked_input_is_422_without_storing_text(client, connected):
+def test_blocked_input_is_marked_without_storing_text(client, connected):
     response = send(client, "meu email é ana@x.com")
 
-    assert response.status_code == 422
-    assert response.json()["error"] == "blocked_content"
+    assert response.status_code == 202
     blocked = messages(connected)[-1]
+    assert blocked["status"] == "blocked"
     assert blocked["blocked"] is True
     assert blocked["blockReason"] == "personal_data"
     assert blocked["text"] == ""
@@ -267,19 +331,19 @@ def test_blocked_input_is_422_without_storing_text(client, connected):
 def test_self_harm_gets_referral_and_text_is_not_stored(client, connected):
     response = send(client, "penso em suicidio")
 
-    body = response.json()
-    assert response.status_code == 200
-    assert "188" in body["reply"]["text"]
-    assert body["reply"]["blocked"] is True
-    stored_user = messages(connected)[-2]
-    assert stored_user["text"] == ""
-    assert stored_user["blockReason"] == "self_harm"
+    assert response.status_code == 202
+    stored = exchange(connected, response.json()["userMessage"]["id"])
+    assert "188" in stored["reply"]["text"]
+    assert stored["reply"]["blocked"] is True
+    assert stored["userMessage"]["text"] == ""
+    assert stored["userMessage"]["status"] == "blocked"
+    assert stored["userMessage"]["blockReason"] == "self_harm"
 
 
 def test_text_length_rules(client, connected):
     assert send(client, "   ").status_code == 400
     assert send(client, "x" * 1001).status_code == 400
-    assert send(client, "x" * 1000).status_code == 200
+    assert send(client, "x" * 1000).status_code == 202
 
 
 def test_unknown_or_hidden_connection_is_404(client, connected):
@@ -290,26 +354,77 @@ def test_unknown_or_hidden_connection_is_404(client, connected):
     assert send(client, "oi").status_code == 404
 
 
-def test_same_idempotency_key_returns_same_reply_without_new_call(client, connected):
-    first = send(client, "Oi", key="k1").json()
+def test_same_idempotency_key_returns_same_message_without_new_call(client, connected):
+    first = send(client, "Oi", key="k1").json()["userMessage"]
     calls = len(connected.llm.calls)
 
     second = send(client, "Oi", key="k1")
 
-    assert second.status_code == 200
-    assert second.json() == first
+    assert second.status_code == 202
+    assert second.json()["userMessage"]["id"] == first["id"]
+    assert second.json()["userMessage"]["status"] == "sent"
     assert len(connected.llm.calls) == calls
     assert connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"] == 1
 
 
-def test_provider_down_is_503_and_nothing_is_stored(client, connected):
+def test_provider_down_marks_the_message_failed_and_the_retry_answers(client, connected):
     before = len(messages(connected))
     connected.llm.fail = True
 
-    response = send(client, "Oi")
+    response = send(client, "Oi", key="k1")
 
-    assert response.status_code == 503
-    assert len(messages(connected)) == before
+    assert response.status_code == 202
+    failed = messages(connected)[-1]
+    assert len(messages(connected)) == before + 1
+    assert failed["status"] == "failed"
+    assert failed["text"] == ""
+    assert failed["errorCode"] == "provider_unavailable"
+    connected.llm.fail = False
+    retried = send(client, "Oi", key="k1").json()["userMessage"]
+    assert retried["id"] == response.json()["userMessage"]["id"]
+    stored = exchange(connected, retried["id"])
+    assert stored["userMessage"]["status"] == "sent"
+    assert "errorCode" not in stored["userMessage"]
+    assert stored["reply"]["text"] == "Resposta a: Oi"
+
+
+def test_orphan_pending_message_is_queued_again_on_retry(client, connected):
+    connected.reply_queue.hold = True
+    first = send(client, "Oi", key="k1").json()["userMessage"]
+    connected.reply_queue.pending.clear()  # o processo reiniciou: a fila em memória se perdeu
+    connected.__dict__.pop("conversation_service", None)
+    connected.reply_queue.hold = False
+
+    retried = send(client, "Oi", key="k1")
+
+    assert retried.status_code == 202
+    assert exchange(connected, first["id"])["reply"]["text"] == "Resposta a: Oi"
+
+
+def test_reply_is_dropped_when_the_chat_is_hidden_while_queued(client, connected):
+    connected.reply_queue.hold = True
+    send(client, "Oi", key="k1")
+    client.post("/v2/chats/hide", headers=HEADERS)
+    calls = len(connected.llm.calls)
+
+    connected.reply_queue.run_pending()
+
+    assert len(connected.llm.calls) == calls
+    assert all(m["author"] != "CHARACTER" or m["hidden"] for m in messages(connected))
+    assert [m["text"] for m in messages(connected) if m["author"] == "USER"] == [""]
+
+
+def test_reply_is_dropped_when_the_message_was_rewound_while_queued(client, connected, clock):
+    opener_id = message_ids(connected)[0]
+    clock.current += timedelta(seconds=30)
+    connected.reply_queue.hold = True
+    send(client, "Oi", key="k1")
+    rewind(client, opener_id)
+
+    connected.reply_queue.run_pending()
+
+    assert message_ids(connected) == [opener_id]
+    assert connected.store.get(f"users/{UID}/matches/storm")["userMessageCount"] == 0
 
 
 def test_rate_limit_returns_429_with_retry_after(client, connected, clock):
@@ -326,7 +441,7 @@ def test_rate_limit_returns_429_with_retry_after(client, connected, clock):
     assert response.headers["Retry-After"] == str(50 * 60)
 
     clock.current += timedelta(minutes=51)
-    assert send(client, "4").status_code == 200
+    assert send(client, "4").status_code == 202
 
 
 # --- GET /v2/me/stats ---------------------------------------------------------------------
@@ -354,11 +469,15 @@ def test_stats_count_connections_messages_seen_and_teams(client, connected):
 
 
 def talk(client, clock, text):
-    """Envia com o relógio avançando antes e depois: a ordem por createdAt fica estável."""
+    """Envia com o relógio avançando antes e depois: a ordem por createdAt fica estável.
+
+    Devolve a troca gravada (`userMessage` e `reply`), como o app a vê pelo Firestore.
+    """
     clock.current += timedelta(seconds=30)
-    reply = send(client, text)
+    response = send(client, text)
+    assert response.status_code == 202
     clock.current += timedelta(seconds=30)
-    return reply
+    return exchange(client.app.state.container, response.json()["userMessage"]["id"])
 
 
 def regenerate(client, connection="storm"):
@@ -379,7 +498,7 @@ def message_ids(container, connection="storm"):
 
 
 def test_regenerate_replaces_the_last_reply_in_place(client, connected, clock):
-    first = talk(client, clock, "Oi, tudo bem?").json()
+    first = talk(client, clock, "Oi, tudo bem?")
     before = message_ids(connected)
 
     response = regenerate(client)
@@ -441,7 +560,7 @@ def test_regenerate_unknown_connection_is_404(client, connected, clock):
 
 
 def test_regenerate_provider_failure_keeps_the_old_reply(client, connected, clock):
-    reply = talk(client, clock, "Oi").json()["reply"]
+    reply = talk(client, clock, "Oi")["reply"]
     connected.llm.fail = True
 
     response = regenerate(client)
@@ -452,7 +571,7 @@ def test_regenerate_provider_failure_keeps_the_old_reply(client, connected, cloc
 
 
 def test_rewind_deletes_everything_after_the_chosen_reply(client, connected, clock):
-    first = talk(client, clock, "Primeira").json()
+    first = talk(client, clock, "Primeira")
     talk(client, clock, "Segunda")
     talk(client, clock, "Terceira")
 
@@ -478,7 +597,7 @@ def test_rewind_to_the_opener_keeps_only_the_opener(client, connected, clock):
 
 
 def test_rewind_only_to_a_character_message(client, connected, clock):
-    sent = talk(client, clock, "Oi").json()
+    sent = talk(client, clock, "Oi")
 
     response = rewind(client, sent["userMessage"]["id"])
 
@@ -491,7 +610,7 @@ def test_rewind_unknown_message_is_404(client, connected, clock):
 
 
 def test_rewound_messages_are_not_in_the_model_history(client, connected, clock):
-    first = talk(client, clock, "Primeira").json()
+    first = talk(client, clock, "Primeira")
     talk(client, clock, "Segunda pergunta apagada")
     rewind(client, first["reply"]["id"])
     connected.llm.calls.clear()
@@ -526,7 +645,27 @@ def test_concurrent_requests_with_the_same_key_are_processed_once(client, connec
     for thread in threads:
         thread.join()
 
-    assert [r.status_code for r in results] == [200, 200]
-    assert results[0].json()["reply"]["id"] == results[1].json()["reply"]["id"]
+    assert [r.status_code for r in results] == [202, 202]
+    ids = {r.json()["userMessage"]["id"] for r in results}
+    assert len(ids) == 1
     assert len(connected.llm.calls) == 1
     assert len(message_ids(connected)) == 3  # abertura, mensagem e resposta, uma vez só
+
+
+def test_real_queue_answers_after_the_request_returns(client, connected):
+    from app.work_queue import WorkQueue
+
+    release = threading.Event()
+    reply_text = connected.llm._reply
+    connected.llm._reply = lambda messages: (release.wait(5), reply_text(messages))[1]
+    connected.__dict__["reply_queue"] = WorkQueue("chat-replies-test", capacity=5)
+    connected.__dict__.pop("conversation_service", None)
+
+    response = send(client, "Oi", key="k1")
+
+    assert response.status_code == 202
+    user_id = response.json()["userMessage"]["id"]
+    assert stored_message(connected, user_id)["status"] == "pending"
+    release.set()
+    connected.reply_queue.wait_idle()
+    assert exchange(connected, user_id)["reply"]["text"] == "Resposta a: Oi"
