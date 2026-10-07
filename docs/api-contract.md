@@ -49,18 +49,13 @@ Contrato entre o app Android e o backend Python. Em rotas, formatos e erros, est
 - `nextDeckAt`: meia-noite do próximo dia no fuso do usuário (a contagem regressiva da tela "Deck complete").
 - `cards` vazio = baralho completo.
 
-### MatchResult (resposta de um Assemble)
+### AssembleAccepted (resposta de um Assemble, `202`)
 ```json
-{
-  "matched": true,
-  "connectionId": "storm",
-  "character": { "characterId": "storm", "name": "Storm", "imageUrl": "https://…" },
-  "score": 82,
-  "reasons": ["Mutant", "XMen", "Leadership"]
-}
+{ "characterId": "storm", "status": "pending | matched | not_matched | failed" }
 ```
-- Sem conexão: `{ "matched": false }` e mais nada (nem score, nem motivos).
-- `connectionId` = `characterId` (uma conexão por par).
+- Num Assemble novo, `status` vem `pending`: a decisão já está gravada (o personagem não volta ao baralho) e a fila decide o match.
+- Com match, a conexão aparece em `matches/{characterId}` no Firestore (com `score`, `whyYouMatch`, nome, imagem e a fala de abertura); o app abre o pop-up a partir dela. Sem match, nada aparece.
+- O mesmo `status` fica em `decisions/{characterId}`. `failed` (com `errorCode`) é retomado sozinho ao abrir o baralho, até 3 tentativas, ou ao repetir com a mesma `Idempotency-Key`.
 
 ### Message
 ```json
@@ -164,7 +159,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 |---|---|---|---|---|
 | GET | `/health` | — | `{ "status": "ok" }` | — |
 | GET | `/v2/deck` | — | `Deck` | Discover, "Deck complete" |
-| POST | `/v2/decisions` | `{ "characterId", "choice": "PASS" \| "ASSEMBLE" }` | PASS: `204`; ASSEMBLE: `MatchResult` | swipe, botões, pré-visualização |
+| POST | `/v2/decisions` | `{ "characterId", "choice": "PASS" \| "ASSEMBLE" }` | PASS: `204`; ASSEMBLE: `202` `AssembleAccepted` | swipe, botões, pré-visualização |
 | POST | `/v2/decisions/undo` | — | `DeckCard` (volta ao topo) | botão Undo |
 | GET | `/v2/characters/{id}` | — | `CharacterPreview` ou `CharacterProfile` | pré-visualização, perfil |
 | POST | `/v2/connections/{id}/messages` | `{ "text" }` (1–1000 caracteres) | `202` `AcceptedMessage` | conversa |
@@ -181,7 +176,7 @@ Alimenta o cabeçalho do menu lateral e as conquistas. As regras das conquistas 
 | POST | `/jobs/ingest`, `/jobs/personas`, `/jobs/translations`, `/jobs/purge` | — | `202` | só GitHub Actions (`X-Jobs-Key`) |
 
 Notas:
-- **Conexão e fala de abertura**: quando `matched = true`, o backend já grava a conexão e a primeira mensagem do personagem (com `suggestions`) antes de responder. O app abre o pop-up F com o `MatchResult` e a conversa já tem a fala ao entrar.
+- **Conexão e fala de abertura (assíncrono)**: o Assemble responde `202` na hora; a fila calcula a afinidade, decide o match e, com match, grava a conexão e a primeira mensagem do personagem (com `suggestions`). O app abre o pop-up F quando a conexão aparece no Firestore, e a conversa já tem a fala ao entrar. Limite de 60 Assembles por hora; fila cheia dá `503` com `Retry-After`.
 - **Envio de mensagem (assíncrono)**: o backend grava a mensagem do usuário como `pending` (sem o texto) e responde `202` na hora; uma fila gera a resposta e grava a troca no Firestore. Uma resposta pendente por conversa: outra mensagem antes dela dá `409 reply_pending`. Repetir com a mesma `Idempotency-Key` devolve o estado gravado; se ele for `failed`, ou `pending` perdido num reinício do servidor, a mensagem volta para a fila (conta no limite por hora). Se a conversa for apagada ou voltada enquanto a resposta está na fila, a resposta é descartada.
 - **Undo**: só o último Pass do dia, uma vez. Sem Pass para desfazer → `409 nothing_to_undo`.
 - **Pré-visualização a partir do card**: o app já tem `name` e `imageUrl` do `DeckCard` (a arte aparece na hora); a rota completa o resto.

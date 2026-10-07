@@ -1,24 +1,27 @@
 from fastapi import APIRouter, Response
 
-from app.api.schemas import DecisionRequest, Deck, DeckCard, MatchResult
+from app.api.schemas import AssembleAccepted, DecisionRequest, Deck, DeckCard
 from app.auth import ActiveUid
 from app.container import ContainerDep
 from app.request_context import IdempotencyKey, Locale, UserTimezone
 
 NO_CONTENT = 204
+ACCEPTED = 202
 
 router = APIRouter(prefix="/v2")
 
 
 @router.get("/deck", response_model=Deck, response_model_exclude_none=True)
 def get_deck(uid: ActiveUid, tz: UserTimezone, locale: Locale, container: ContainerDep) -> Deck:
+    # Abrir o baralho retoma os Assembles que se perderam num reinício ou falharam.
+    container.decision_service.resume_unresolved(uid, locale)
     return container.deck_service.get_deck(uid, tz, locale)
 
 
 @router.post(
     "/decisions",
-    response_model=MatchResult,
-    response_model_exclude_none=True,
+    status_code=ACCEPTED,
+    response_model=AssembleAccepted,
     responses={NO_CONTENT: {"description": "PASS gravado"}},
 )
 def post_decision(

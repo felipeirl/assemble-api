@@ -56,11 +56,8 @@ def test_deck_names_follow_accept_language(client, ready):
 
 
 def test_match_keeps_original_name_and_adds_pt_br_name_for_the_app(client, ready):
-    body = client.post(
-        "/v2/decisions", json={"characterId": "storm", "choice": "ASSEMBLE"}, headers=h(PT)
-    ).json()
+    client.post("/v2/decisions", json={"characterId": "storm", "choice": "ASSEMBLE"}, headers=h(PT))
 
-    assert body["character"]["name"] == "Tempestade"
     match = ready.store.get(f"users/{UID}/matches/storm")
     assert match["characterName"] == "Storm"
     assert match["characterNamePtBR"] == "Tempestade"

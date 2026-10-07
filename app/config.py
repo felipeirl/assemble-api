@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     memory_chunk_size: int = 30
     messages_per_hour: int = 60
     assembles_per_hour: int = 60
+    # Assembles esperando na fila; cheia, o Assemble responde 503 com Retry-After.
+    assemble_queue_capacity: int = 200
+    assemble_workers: int = 4
     # Respostas esperando na fila (uma por conversa); cheia, o envio responde 503 com Retry-After.
     chat_queue_capacity: int = 100
     # Respostas geradas ao mesmo tempo: chamadas ao modelo em paralelo (cuidado com o limite de

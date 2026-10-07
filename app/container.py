@@ -113,6 +113,13 @@ class Container:
         )
 
     @cached_property
+    def assemble_queue(self) -> WorkQueue:
+        """Assembles: afinidade no Laya (um por vez) e fala de abertura no modelo (em paralelo)."""
+        return WorkQueue(
+            "assembles", self.settings.assemble_queue_capacity, self.settings.assemble_workers
+        )
+
+    @cached_property
     def memory_queue(self) -> WorkQueue:
         """Resumos das conversas: separados para não atrasar as respostas."""
         return WorkQueue("chat-memory", self.settings.memory_queue_capacity)
@@ -269,6 +276,7 @@ class Container:
             assemble_limiter=SlidingWindowLimiter(
                 settings.assembles_per_hour, ASSEMBLE_LIMIT_WINDOW, self.clock
             ),
+            assembles=self.assemble_queue,
             weights=MatchWeights(
                 compatibility=settings.match_weight_compatibility,
                 affinity=settings.match_weight_affinity,

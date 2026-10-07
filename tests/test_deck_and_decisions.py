@@ -226,8 +226,12 @@ def test_assemble_without_match_returns_only_matched_false(client, seeded):
 
     response = decide(client, "storm", "ASSEMBLE")
 
-    assert response.status_code == 200
-    assert response.json() == {"matched": False}
+    assert response.status_code == 202
+    assert response.json() == {"characterId": "storm", "status": "pending"}
+    decision = seeded.store.get(f"users/{UID}/decisions/storm")
+    assert decision["status"] == "not_matched"
+    assert decision["matched"] is False
+    assert "match" not in decision
     assert seeded.store.get(f"users/{UID}/matches/storm") is None
 
 
@@ -236,19 +240,15 @@ def test_assemble_with_match_creates_connection(client, seeded, clock):
 
     response = decide(client, "storm", "ASSEMBLE")
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "matched": True,
-        "connectionId": "storm",
-        "character": {
-            "characterId": "storm",
-            "name": "Storm",
-            "imageUrl": "https://img/storm.jpg",
-        },
-        "score": 67,
-        "reasons": ["Mutant", "XMen", "Leadership"],
-    }
+    assert response.status_code == 202
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
     match = seeded.store.get(f"users/{UID}/matches/storm")
+    assert match["imageUrl"] == "https://img/storm.jpg"
+    assert match["whyYouMatch"] == [
+        {"category": "origin", "traits": ["Mutant"]},
+        {"category": "teams", "traits": ["XMen"]},
+        {"category": "style", "traits": ["Leadership"]},
+    ]
     assert match["score"] == 67
     assert match["userMessageCount"] == 0
     assert match["characterName"] == "Storm"
@@ -259,12 +259,87 @@ def test_assemble_with_match_creates_connection(client, seeded, clock):
 
 def test_assemble_is_idempotent_with_same_key(client, seeded):
     force_match(seeded, matched=True)
-    first = decide(client, "storm", "ASSEMBLE", key="k1").json()
+    decide(client, "storm", "ASSEMBLE", key="k1")
+    calls = len(seeded.llm.calls)
 
     second = decide(client, "storm", "ASSEMBLE", key="k1")
 
-    assert second.status_code == 200
-    assert second.json() == first
+    assert second.status_code == 202
+    assert second.json() == {"characterId": "storm", "status": "matched"}
+    assert len(seeded.llm.calls) == calls
+
+
+def test_assemble_is_pending_until_the_queue_resolves_it(client, seeded):
+    force_match(seeded, matched=True)
+    seeded.assemble_queue.hold = True
+
+    response = decide(client, "storm", "ASSEMBLE", key="k1")
+
+    assert response.json() == {"characterId": "storm", "status": "pending"}
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "pending"
+    assert "storm" not in {card["characterId"] for card in deck(client)["cards"]}
+    assert decide(client, "storm", "ASSEMBLE", key="k1").json()["status"] == "pending"
+    seeded.assemble_queue.run_pending()
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
+    assert seeded.store.get(f"users/{UID}/matches/storm") is not None
+
+
+def test_orphan_assemble_is_resumed_when_the_deck_opens(client, seeded):
+    force_match(seeded, matched=True)
+    seeded.assemble_queue.hold = True
+    decide(client, "storm", "ASSEMBLE", key="k1")
+    seeded.assemble_queue.pending.clear()  # o processo reiniciou: a fila em memória se perdeu
+    seeded.__dict__.pop("decision_service", None)
+    seeded.assemble_queue.hold = False
+
+    deck(client)
+
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
+    assert seeded.store.get(f"users/{UID}/matches/storm") is not None
+
+
+def test_failed_assemble_is_retried_on_deck_open_up_to_the_limit(client, seeded):
+    force_match(seeded, matched=True)
+    seeded.llm.fail = True
+    decide(client, "storm", "ASSEMBLE")
+    deck(client)
+    deck(client)
+    decision = seeded.store.get(f"users/{UID}/decisions/storm")
+    assert decision["status"] == "failed"
+    assert decision["attempts"] == 3
+
+    seeded.llm.fail = False
+    deck(client)
+
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "failed"
+    assert seeded.store.get(f"users/{UID}/matches/storm") is None
+
+
+def test_full_assemble_queue_is_503_and_can_be_retried(client, seeded):
+    force_match(seeded, matched=True)
+    seeded.assemble_queue.hold = True
+    seeded.assemble_queue.capacity = 0
+
+    response = decide(client, "storm", "ASSEMBLE", key="k1")
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "10"
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "failed"
+    seeded.assemble_queue.capacity = None
+    seeded.assemble_queue.hold = False
+    assert decide(client, "storm", "ASSEMBLE", key="k1").status_code == 202
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
+
+
+def test_decisions_from_before_the_queue_report_their_result(client, seeded):
+    seeded.store.set(
+        f"users/{UID}/decisions/storm",
+        {"choice": "ASSEMBLE", "matched": False, "idempotencyKey": "old"},
+    )
+
+    response = decide(client, "storm", "ASSEMBLE", key="old")
+
+    assert response.json() == {"characterId": "storm", "status": "not_matched"}
 
 
 # --- POST /v2/decisions/undo --------------------------------------------------------------
@@ -366,7 +441,7 @@ def test_assembles_are_rate_limited_per_user(client, seeded):
     seeded.__dict__.pop("decision_service", None)
     force_match(seeded, False)
 
-    assert decide(client, "storm", "ASSEMBLE").status_code == 200
+    assert decide(client, "storm", "ASSEMBLE").status_code == 202
     response = decide(client, "iron-man", "ASSEMBLE")
 
     assert response.status_code == 429

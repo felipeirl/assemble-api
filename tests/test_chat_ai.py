@@ -483,7 +483,7 @@ def assemble(client, key=None):
 def test_match_creates_opener_before_responding(client, matched, clock):
     response = assemble(client)
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     messages = matched.store.query(f"users/{UID}/matches/storm/messages")
     assert len(messages) == 1
     message = messages[0][1]
@@ -504,15 +504,19 @@ def test_match_with_provider_down_is_503_and_recovers_on_retry(client, matched):
 
     first = assemble(client, key="k1")
 
-    assert first.status_code == 503
-    assert first.json()["error"] == "provider_unavailable"
+    assert first.status_code == 202
+    decision = matched.store.get(f"users/{UID}/decisions/storm")
+    assert decision["status"] == "failed"
+    assert decision["errorCode"] == "provider_unavailable"
+    assert decision["matched"] is True  # o resultado fica guardado; só a abertura falhou
     assert matched.store.get(f"users/{UID}/matches/storm") is None
 
     matched.llm.fail = False
     retry = assemble(client, key="k1")
 
-    assert retry.status_code == 200
-    assert retry.json()["matched"] is True
+    assert retry.status_code == 202
+    assert retry.json() == {"characterId": "storm", "status": "pending"}
+    assert matched.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
     assert matched.store.get(f"users/{UID}/matches/storm")["score"] == 67
 
 

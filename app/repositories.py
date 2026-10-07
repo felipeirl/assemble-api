@@ -93,6 +93,15 @@ class DecisionRepository:
     def delete(self, uid: str, character_id: str) -> None:
         self._store.delete(f"{decisions_path(uid)}/{character_id}")
 
+    def update(self, uid: str, character_id: str, data: dict[str, Any]) -> None:
+        self._store.update(f"{decisions_path(uid)}/{character_id}", data)
+
+    def unresolved(self, uid: str) -> list[Document]:
+        """Assembles ainda sem resultado: pendentes ou que falharam."""
+        return self._store.query(
+            decisions_path(uid), filters=(("status", "in", ["pending", "failed"]),)
+        )
+
     def decided_ids(self, uid: str) -> set[str]:
         return {doc_id for doc_id, _ in self._store.query(decisions_path(uid))}
 

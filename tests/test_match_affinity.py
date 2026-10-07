@@ -39,7 +39,8 @@ def test_high_affinity_produces_match_with_full_formula(client, ready):
 
     response = assemble(client)
 
-    assert response.json()["matched"] is True
+    assert response.status_code == 202
+    assert ready.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
     match = ready.store.get(f"users/{UID}/matches/storm")
     assert match["decisionVersion"] == DECISION_VERSION
     assert match["matchChance"] == pytest.approx(expected_chance(1.0), abs=1e-4)
@@ -49,10 +50,11 @@ def test_low_affinity_can_prevent_match(client, ready):
     ready.guardrail.affinity_value = 0.0
     ready.settings.match_cutoff = expected_chance(0.0) + 0.01
 
-    response = assemble(client)
+    assemble(client)
 
-    assert response.json() == {"matched": False}
-    assert ready.store.get(f"users/{UID}/decisions/storm")["matched"] is False
+    decision = ready.store.get(f"users/{UID}/decisions/storm")
+    assert decision["status"] == "not_matched"
+    assert decision["matched"] is False
 
 
 def test_guardrail_outage_falls_back_to_degraded_mode(client, ready):
@@ -62,8 +64,9 @@ def test_guardrail_outage_falls_back_to_degraded_mode(client, ready):
     response = assemble(client)
 
     # Sem Laya o chat também falha: a decisão fica gravada e a conexão espera nova tentativa.
-    assert response.status_code == 503
+    assert response.status_code == 202
     decision = ready.store.get(f"users/{UID}/decisions/storm")
+    assert decision["status"] == "failed"
     assert decision["match"]["decisionVersion"] == DECISION_VERSION_DEGRADED
     assert decision["match"]["matchChance"] == pytest.approx(expected_chance(None), abs=1e-4)
 

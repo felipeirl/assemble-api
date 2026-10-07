@@ -73,6 +73,7 @@ def container(clock: FixedClock) -> Container:
     # Filas que rodam na hora: o efeito da resposta do chat já está gravado ao fim do pedido.
     container.__dict__["reply_queue"] = FakeQueue()
     container.__dict__["memory_queue"] = FakeQueue()
+    container.__dict__["assemble_queue"] = FakeQueue()
     return container
 
 

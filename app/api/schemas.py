@@ -43,18 +43,11 @@ class TasteSignalRequest(BaseModel):
     liked: bool
 
 
-class MatchCharacter(BaseModel):
+class AssembleAccepted(BaseModel):
+    """Assemble aceito. Com match, a conexão aparece depois no Firestore (`matches/{id}`)."""
+
     characterId: str
-    name: str
-    imageUrl: str | None = None
-
-
-class MatchResult(BaseModel):
-    matched: bool
-    connectionId: str | None = None
-    character: MatchCharacter | None = None
-    score: int | None = None
-    reasons: list[str] | None = None
+    status: Literal["pending", "matched", "not_matched", "failed"]
 
 
 class DecisionRequest(BaseModel):

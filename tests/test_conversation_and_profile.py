@@ -19,7 +19,8 @@ def connected(container, client):
     response = client.post(
         "/v2/decisions", json={"characterId": "storm", "choice": "ASSEMBLE"}, headers=HEADERS
     )
-    assert response.json()["matched"] is True
+    assert response.status_code == 202
+    assert container.store.get(f"users/{UID}/decisions/storm")["status"] == "matched"
     return container
 
 
