@@ -262,6 +262,8 @@ class DecisionService:
         prefs = self._users.preferences(uid)
         traits = CharacterTraits.model_validate(character)
         compatibility = score(prefs, traits)
+        if character_id in self._users.force_match(uid):
+            return self._forced_match(prefs, traits, compatibility)
         outcome = decide_match(
             compatibility,
             affinity=self._timed_affinity(uid, character_id, prefs),
@@ -280,6 +282,24 @@ class DecisionService:
                 ],
             }
         return fields
+
+    @staticmethod
+    def _forced_match(
+        prefs: Preferences, traits: CharacterTraits, compatibility: int
+    ) -> dict[str, Any]:
+        """Match sem Laya nem sorteio, para a conta de demonstração (`forceMatch`)."""
+        return {
+            "matched": True,
+            "match": {
+                "score": compatibility,
+                "matchChance": 1.0,
+                "decisionVersion": "forced",
+                "whyYouMatch": [
+                    {"category": m.category.value, "traits": m.traits}
+                    for m in breakdown(prefs, traits)
+                ],
+            },
+        }
 
     def _mark(self, uid: str, character_id: str, fields: dict[str, Any]) -> bool:
         """Atualiza a decisão; False se ela já não existe (conta apagada)."""

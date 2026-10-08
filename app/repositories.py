@@ -60,6 +60,14 @@ class UserRepository:
             if doc.get("onboardingCompletedAt") and doc.get("status") != USER_STATUS_DEACTIVATED
         ]
 
+    def deck_pin(self, uid: str) -> list[str]:
+        """Personagens que abrem o baralho, na ordem (só a conta de demonstração do vídeo)."""
+        return [str(c) for c in (self.get(uid) or {}).get("deckPin") or []]
+
+    def force_match(self, uid: str) -> set[str]:
+        """Personagens com quem o Assemble sempre dá match (só a conta de demonstração)."""
+        return {str(c) for c in (self.get(uid) or {}).get("forceMatch") or []}
+
     def looking_for(self, uid: str) -> str | None:
         """Frase escrita pelo usuário: dado não confiável, checado pelo guardrail antes do uso."""
         user = self.get(uid) or {}

@@ -257,6 +257,37 @@ def test_assemble_with_match_creates_connection(client, seeded, clock):
     assert match["decisionVersion"] == DECISION_VERSION_DEGRADED
 
 
+def test_deck_pin_opens_the_deck_in_order(client, seeded):
+    seeded.store.update(f"users/{UID}", {"deckPin": ["rocket", "storm", "iron-man"]})
+
+    ids = [card["characterId"] for card in deck(client)["cards"]]
+
+    assert ids[:3] == ["rocket", "storm", "iron-man"]
+    assert sorted(ids) == sorted(ELIGIBLE)
+
+
+def test_deck_pin_ignores_decided_and_unknown_characters(client, seeded):
+    seeded.store.update(f"users/{UID}", {"deckPin": ["nobody", "storm", "iron-man"]})
+    decide(client, "storm", "PASS")
+
+    ids = [card["characterId"] for card in deck(client)["cards"]]
+
+    assert ids[0] == "iron-man"
+    assert "storm" not in ids and "nobody" not in ids
+
+
+def test_force_match_makes_the_assemble_match_without_luck(client, seeded):
+    force_match(seeded, matched=False)
+    seeded.store.update(f"users/{UID}", {"forceMatch": ["iron-man"]})
+
+    decide(client, "iron-man", "ASSEMBLE")
+    decide(client, "storm", "ASSEMBLE")
+
+    assert seeded.store.get(f"users/{UID}/decisions/iron-man")["status"] == "matched"
+    assert seeded.store.get(f"users/{UID}/matches/iron-man")["decisionVersion"] == "forced"
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "not_matched"
+
+
 def test_assemble_is_idempotent_with_same_key(client, seeded):
     force_match(seeded, matched=True)
     decide(client, "storm", "ASSEMBLE", key="k1")

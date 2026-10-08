@@ -86,6 +86,7 @@ class DeckService:
             pool, max(0, self._deck_size - decided_today), rng, learned, taste.confidence
         )
         rng.shuffle(chosen)
+        chosen = self._pinned_first(uid, chosen, traits)
         cards = []
         for character_id in chosen:
             doc = self._catalog.get(character_id)
@@ -99,6 +100,13 @@ class DeckService:
             nextDeckAt=deck_rules.next_deck_at(self._clock.now(), tz),
             canUndo=self._undo_target(uid, date, deck) is not None,
         )
+
+    def _pinned_first(
+        self, uid: str, chosen: list[str], available: dict[str, CharacterTraits]
+    ) -> list[str]:
+        """`deckPin` do usuário abre o baralho, na ordem; sem o campo, o sorteio fica como está."""
+        pinned = [c for c in self._users.deck_pin(uid) if c in available]
+        return pinned + [c for c in chosen if c not in pinned]
 
     def record_pass(self, uid: str, date: str, character_id: str) -> None:
         self._decks.update(uid, date, {LAST_PASS_FIELD: character_id})
