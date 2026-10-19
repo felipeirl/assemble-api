@@ -16,6 +16,7 @@ from app.api.schemas import AssembleAccepted
 from app.catalog.catalog import CharacterCatalog
 from app.catalog.names import pt_br_name
 from app.clock import Clock
+from app.domain import deck as deck_rules
 from app.domain.compatibility import breakdown, score
 from app.domain.enums import Choice
 from app.domain.match import MatchWeights, decide_match, seeded_chance
@@ -103,8 +104,13 @@ class DecisionService:
         character = self._catalog.get(character_id)
         if character is None:
             raise ApiError("not_found")
-        if self._decisions.get(uid, character_id) is not None:
-            return self._replay(uid, character_id, idempotency_key, locale)
+        today = self._deck.today(tz)
+        existing = self._decisions.get(uid, character_id)
+        if existing is not None:
+            if not deck_rules.returns_to_deck(existing, today):
+                return self._replay(uid, character_id, idempotency_key, locale)
+            # Pass de um dia anterior: o personagem voltou ao baralho e pode ser decidido de novo.
+            self._decisions.delete(uid, character_id)
 
         date, _ = self._deck.ensure_deck(uid, tz)
         decision: dict[str, Any] = {

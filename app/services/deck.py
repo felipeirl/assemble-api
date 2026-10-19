@@ -1,4 +1,6 @@
-"""Baralho (seção 8): até 40 decisões por dia, sem reposição, Undo do último Pass.
+"""Baralho (seção 8): até 40 decisões por dia, Undo do último Pass.
+
+Quem recebeu Assemble não volta; quem recebeu Pass volta ao baralho a partir do dia seguinte.
 
 O baralho é sorteado de novo a cada chamada: abrir o app gira os personagens que ainda não foram
 decididos. A cota do dia é fixa; o que muda é quais personagens aparecem.
@@ -73,9 +75,13 @@ class DeckService:
         date, deck = self.ensure_deck(uid, tz)
         prefs = self._users.preferences(uid)
         # Uma leitura das decisões serve para tirar as decididas e para aprender o gosto.
-        choices = self._decisions.choices(uid)
+        decisions = self._decisions.all(uid)
+        choices = {cid: doc.get("choice", "") for cid, doc in decisions.items()}
+        blocked = {
+            cid for cid, doc in decisions.items() if not deck_rules.returns_to_deck(doc, date)
+        }
         decided_today = self._decisions.count_on_date(uid, date)
-        pool, traits = self._candidates(prefs, set(choices))
+        pool, traits = self._candidates(prefs, blocked)
         taste = self._taste(uid, choices)
         learned = {
             character_id: taste_rules.affinity(taste, found)

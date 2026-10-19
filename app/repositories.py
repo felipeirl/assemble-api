@@ -125,6 +125,10 @@ class DecisionRepository:
     def decided_ids(self, uid: str) -> set[str]:
         return {doc_id for doc_id, _ in self._store.query(decisions_path(uid))}
 
+    def all(self, uid: str) -> dict[str, dict[str, Any]]:
+        """characterId -> decisão, de todas as decisões do usuário (uma leitura só)."""
+        return dict(self._store.query(decisions_path(uid)))
+
     def count(self, uid: str) -> int:
         return self._store.count(decisions_path(uid))
 
@@ -135,8 +139,12 @@ class DecisionRepository:
         }
 
     def count_on_date(self, uid: str, date: str) -> int:
-        """Decisões tomadas no dia do baralho (a cota diária descontada)."""
-        return self._store.count(decisions_path(uid), filters=(("deckDate", "==", date),))
+        """Decisões tomadas no dia do baralho (a cota diária descontada).
+
+        O Assemble numa proposta do personagem não gasta a cota: o baralho não o sorteou.
+        """
+        today = self._store.query(decisions_path(uid), filters=(("deckDate", "==", date),))
+        return sum(1 for _, doc in today if not doc.get("overture"))
 
 
 class OvertureRepository:

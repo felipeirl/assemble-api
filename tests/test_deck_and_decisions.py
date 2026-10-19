@@ -174,15 +174,17 @@ def test_decided_characters_leave_the_deck_without_replacement(client, seeded):
     assert "storm" not in {c["characterId"] for c in body["cards"]}
 
 
-def test_passed_character_never_returns_next_day(client, seeded, clock):
+def test_passed_character_returns_next_day(client, seeded, clock):
     deck(client)
     decide(client, "storm", "PASS")
+
+    assert "storm" not in {c["characterId"] for c in deck(client)["cards"]}
 
     clock.current += timedelta(days=1)
     body = deck(client)
 
-    assert "storm" not in {c["characterId"] for c in body["cards"]}
-    assert body["total"] == 3
+    assert "storm" in {c["characterId"] for c in body["cards"]}
+    assert body["total"] == 4
 
 
 def test_deck_requires_active_account(client, seeded):
@@ -286,6 +288,56 @@ def test_force_match_makes_the_assemble_match_without_luck(client, seeded):
     assert seeded.store.get(f"users/{UID}/decisions/iron-man")["status"] == "matched"
     assert seeded.store.get(f"users/{UID}/matches/iron-man")["decisionVersion"] == "forced"
     assert seeded.store.get(f"users/{UID}/decisions/storm")["status"] == "not_matched"
+
+
+def seed_decision(container, character_id, choice, deck_date, **extra):
+    container.store.set(
+        f"users/{UID}/decisions/{character_id}",
+        {"choice": choice, "deckDate": deck_date, "decidedAt": container.clock.now(), **extra},
+    )
+
+
+def test_pass_from_an_earlier_day_returns_to_the_deck(client, seeded):
+    seed_decision(seeded, "storm", "PASS", "2000-01-01")
+
+    assert "storm" in [card["characterId"] for card in deck(client)["cards"]]
+
+
+def test_pass_from_today_and_any_assemble_stay_out_of_the_deck(client, seeded):
+    today = deck(client)["date"]
+    seed_decision(seeded, "storm", "PASS", today)
+    seed_decision(seeded, "rocket", "ASSEMBLE", "2000-01-01", status="matched")
+
+    ids = [card["characterId"] for card in deck(client)["cards"]]
+
+    assert "storm" not in ids and "rocket" not in ids
+
+
+def test_a_returning_pass_can_be_decided_again(client, seeded):
+    seed_decision(seeded, "storm", "PASS", "2000-01-01")
+    force_match(seeded, matched=True)
+
+    response = decide(client, "storm", "ASSEMBLE")
+
+    assert response.status_code == 202
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["choice"] == "ASSEMBLE"
+    assert seeded.store.get(f"users/{UID}/matches/storm") is not None
+
+
+def test_decision_from_today_is_still_final(client, seeded):
+    today = deck(client)["date"]
+    seed_decision(seeded, "storm", "PASS", today)
+
+    assert decide(client, "storm", "PASS").status_code == 409
+    assert seeded.store.get(f"users/{UID}/decisions/storm")["deckDate"] == today
+
+
+def test_assemble_on_an_overture_does_not_spend_the_daily_quota(client, seeded):
+    today = deck(client)["date"]
+    seed_decision(seeded, "storm", "ASSEMBLE", today, status="matched", overture=True)
+    seed_decision(seeded, "rocket", "ASSEMBLE", today, status="matched")
+
+    assert seeded.decision_service._decisions.count_on_date(UID, today) == 1
 
 
 def test_assemble_is_idempotent_with_same_key(client, seeded):

@@ -107,6 +107,11 @@ def select_mixed_deck(
     return declared + select_deck(rest, size - len(declared), rng, luck)
 
 
+def returns_to_deck(decision: dict, today: str) -> bool:
+    """Um Pass de um dia anterior volta ao baralho; Assemble e o Pass de hoje não voltam."""
+    return decision.get("choice") == "PASS" and str(decision.get("deckDate") or "") < today
+
+
 def local_date(now: datetime, tz: ZoneInfo) -> date:
     return now.astimezone(tz).date()
 

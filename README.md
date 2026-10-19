@@ -225,7 +225,7 @@ Com `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET` no `
 
 ## Baralho
 
-- **Cota do dia:** `DECK_SIZE` (40) decisões por dia, contadas por `deckDate` nas decisões. Quem recebeu Pass ou Assemble não volta; Undo desfaz só o último Pass.
+- **Cota do dia:** `DECK_SIZE` (40) decisões por dia, contadas por `deckDate` nas decisões (o Assemble numa proposta do personagem não gasta a cota). Quem recebeu Assemble não volta; quem recebeu Pass volta ao baralho a partir do dia seguinte; Undo desfaz só o último Pass.
 - **Sorteio a cada abertura:** `GET /v2/deck` sorteia de novo entre os personagens que o usuário ainda não decidiu. Fechar e abrir o app gira os personagens, e o baralho de cada pessoa sai diferente. O documento `decks/{data}` guarda só o necessário para o Undo, não a lista de cards.
 - **Como sorteia** (`app/domain/deck.py`): nota de compatibilidade (peso `SCORE_WEIGHT` = 3), bônus de novidade, penalidade de variedade proporcional (a fração do baralho já ocupada pela mesma origem e equipes) e sorte `JITTER` de 0 a 0,6. Com esse peso, entram cerca de 20 dos 25 personagens mais compatíveis (com peso 1 eram 15) e a nota média do baralho sobe de 74 para 78 (o conjunto todo tem 72). Para favorecer mais ou menos, mude `SCORE_WEIGHT`: 4 dá 22 dos 25 melhores e baralhos mais parecidos entre aberturas. Medido com duas contas reais: 18 de 40 personagens em comum entre pessoas e 23 de 40 entre duas aberturas da mesma conta, antes eram 28 e 35.
 - A penalidade de variedade antiga somava 0,1 por repetição e passava de 2,0 no meio da seleção; por isso os personagens de origem rara entravam sempre e o baralho era quase igual para todos.
