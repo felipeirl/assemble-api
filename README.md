@@ -1,295 +1,244 @@
+<div align="center">
+
 # Assemble API
 
-> **Projeto acadêmico.** Não é afiliado, patrocinado ou endossado pela Marvel, pela Comic Vine ou por qualquer editora. Nomes e marcas pertencem aos seus donos. Toda conversa é ficção gerada por IA.
+**The backend of Assemble: a daily deck of fictional comic characters, a decision engine, and in-character AI conversations.**
 
-Único servidor do app Assemble ([repositório do app Android](https://github.com/felipeirl/assemble-app)). Verifica o login do Firebase, grava no Firestore, monta o baralho diário, decide o Assemble e conversa com o usuário como uma versão **ficcional** do personagem, gerada por IA.
+[![CI](https://github.com/felipeirl/assemble-api/actions/workflows/deploy.yml/badge.svg)](https://github.com/felipeirl/assemble-api/actions/workflows/deploy.yml)
+[![Release](https://img.shields.io/github/v/release/felipeirl/assemble-api?sort=semver)](https://github.com/felipeirl/assemble-api/releases)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-- Contrato da API V2: [`docs/api-contract.md`](docs/api-contract.md) (prevalece em rotas, formatos e erros)
-- Rodar no PC com ngrok: [`docs/local-run.md`](docs/local-run.md)
-- Deploy no Google Cloud Run (opcional): [`docs/cloud-run.md`](docs/cloud-run.md)
-- Histórico de versões: [`CHANGELOG.md`](CHANGELOG.md)
+[Overview](#overview) · [Features](#features) · [Architecture](#architecture) · [Getting started](#getting-started) · [API](#api) · [Testing](#testing) · [Deployment](#deployment) · [Releases](#releases)
 
-## Arquitetura
+</div>
+
+---
+
+Assemble is a mobile app where each day a user receives a deck of comic characters. They decide to **pass** or to **Assemble** with each one. When both sides are compatible, the character starts a conversation, written in character by an AI model. This repository is the only server behind the app: it verifies Firebase sign-ins, stores everything in Firestore, runs the decision engine, and generates the conversations.
+
+> [!IMPORTANT]
+> This is an independent, non-commercial project. It is not affiliated with, sponsored by, or endorsed by Marvel, Comic Vine, or any publisher. Every conversation is AI-generated fiction. The Android client lives in [felipeirl/assemble-app](https://github.com/felipeirl/assemble-app).
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/portfolio/01-onboarding-poderes.png" width="180" alt="Onboarding: choosing powers"/><br/><sub>Onboarding</sub></td>
+    <td align="center"><img src="docs/portfolio/03-discover-viuva-negra.png" width="180" alt="Daily deck: character card"/><br/><sub>Daily deck</sub></td>
+    <td align="center"><img src="docs/portfolio/05-assemble-match.png" width="180" alt="Mutual Assemble with compatibility score"/><br/><sub>Assemble and compatibility</sub></td>
+    <td align="center"><img src="docs/portfolio/06-conversa.png" width="180" alt="In-character conversation"/><br/><sub>In-character chat</sub></td>
+    <td align="center"><img src="docs/portfolio/08-conexoes-compatibilidade.png" width="180" alt="Connections tab"/><br/><sub>Connections</sub></td>
+  </tr>
+</table>
+
+## Overview
+
+| Concern | How it is handled |
+| --- | --- |
+| **Identity** | Firebase ID tokens verified server-side with the Admin SDK. Deactivated accounts are purged on a schedule. |
+| **Deck** | A deterministic daily selection (40 characters per user per day), built from the catalog and the user's taste signals. |
+| **Decisions** | A pure function scores compatibility, affinity, and chance (weights `0.6 / 0.3 / 0.1`, cutoff `0.55`). It has no I/O and is covered by unit tests. |
+| **Conversations** | Asynchronous. The API answers `202` immediately; a work queue generates the reply and writes it to Firestore. |
+| **Safety** | A local guardrail model ([Laya](https://pypi.org/project/laya/)) screens user input and model output. Reports of sexual violence receive a fixed response with support hotlines, without calling the model. |
+| **Memory** | Long conversations are summarized in batches, so the persona keeps context without an unbounded prompt. |
+| **Privacy** | Zero-data-retention requests to the model provider. Access logs are kept for 180 days, as required by Brazil's Marco Civil da Internet. |
+
+## Features
+
+- **Daily deck** with one decision per character per day, undo for the last pass, and passes that return the next day.
+- **Mutual compatibility**: an Assemble becomes a connection when the score clears the cutoff. Characters can also propose an Assemble on their own (“overtures”), every 30 minutes.
+- **Conversations in character**, with regenerate, rewind, and suggested replies. Every bot message is labeled as generated fiction.
+- **Onboarding** with a "this or that" reaction round that teaches taste without counting as a decision.
+- **Catalog ingestion** from Comic Vine, the Marvel Database (Fandom), the Superhero API, and Wikidata, with Portuguese translations of descriptions.
+- **Account lifecycle**: e-mail verification over SMTP, deactivation with a purge date, reactivation, and chat hiding.
+- **Media**: profile photos go straight from the client to Cloudinary through signed uploads.
+- **Operations**: `/health` and `/ready` endpoints, a load-test script, and scheduled jobs in GitHub Actions authenticated with a shared key.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    App["Android app"] -- "Firebase ID token" --> API["FastAPI service"]
+    API --> Auth["Firebase Auth"]
+    API <--> Store[("Firestore")]
+    API --> Queues["In-process work queues"]
+    Queues --> LLM["LLM provider (LiteLLM)"]
+    API --> Guard["Laya guardrail (local, CPU)"]
+    API --> Media["Cloudinary"]
+    API --> Mail["SMTP"]
+    Jobs["GitHub Actions jobs"] -- "X-Jobs-Key" --> API
+    Catalog["Comic Vine · Marvel Database · Superhero API · Wikidata"] --> Jobs
+```
+
+The code is layered so that business rules do not depend on infrastructure:
 
 ```
 app/
-  main.py            FastAPI, rotas e aquecimento do Laya
-  config.py          variáveis de ambiente (pydantic-settings)
-  container.py       montagem das dependências (Firestore, IA, serviços)
-  auth.py            token do Firebase, conta desativada, X-Jobs-Key
-  access_log.py      accessLogs (Marco Civil, 180 dias)
-  api/               rotas /v2/* e /jobs/*, objetos do contrato
-  domain/            compatibilidade, baralho e decisão do Assemble (funções puras)
-  services/          baralho, decisões, conversa, perfil, conta
-  catalog/           ingestão Comic Vine + Marvel Database (Fandom) + Superhero API
-  ai/                LiteLLM (Command Code), guardrail Laya, fichas de persona, chat
-  store/             acesso a documentos (Firestore e memória, para testes)
-data/                tabelas versionadas: poderes, equipes, origens, lista do tier A
-firestore.rules      regras de segurança do Firestore (só o app; o backend usa o Admin SDK)
-.github/workflows/   jobs agendados (ingestão, fichas, purge)
+  main.py        FastAPI app, routers, warm-up of the guardrail model
+  config.py      typed settings (pydantic-settings)
+  container.py   wiring of stores, providers, and services
+  api/           HTTP routes and response schemas (the /v2 contract)
+  services/      use cases: deck, decisions, conversations, onboarding, accounts
+  domain/        pure logic: compatibility, deck construction, match decision
+  store/         document store abstraction (Firestore; in-memory for tests)
+  ai/            LLM client, guardrail, persona prompts, conversation memory
+  catalog/       ingestion and normalization from external sources
+data/            versioned lookup tables (powers, teams, origins, tiers)
+tests/           475 tests, run against in-memory fakes, no network calls
 ```
 
-## Rodar localmente
+## Tech stack
 
-Requisitos: Python 3.12 e [uv](https://docs.astral.sh/uv/).
+| Area | Choices |
+| --- | --- |
+| Language and runtime | Python 3.12, `uv` for dependency management with a lockfile |
+| API | FastAPI, Pydantic v2, Uvicorn |
+| Identity and data | Firebase Authentication, Cloud Firestore (Admin SDK), security rules tested in the emulator |
+| AI | LiteLLM (OpenAI-compatible provider), Laya guardrail on CPU PyTorch |
+| Integrations | Comic Vine, Marvel Database (Fandom), Superhero API, Wikidata, Cloudinary, SMTP |
+| Quality | Ruff (lint and format), pytest, GitHub Actions |
+| Delivery | Docker (`python:3.12-slim`, non-root user), Discloud, Google Cloud Run (manual workflow) |
+
+## Getting started
+
+**Requirements:** Python 3.12, [uv](https://docs.astral.sh/uv/), and a Firebase service account with Firestore enabled.
 
 ```bash
+git clone https://github.com/felipeirl/assemble-api.git
+cd assemble-api
 uv sync
-cp .env.example .env
+cp .env.example .env        # then fill in the values (see Configuration)
 uv run uvicorn app.main:app --reload
 ```
 
-Preencha o `.env`, que é ignorado pelo git. Sem `FIREBASE_SERVICE_ACCOUNT_JSON` o servidor não sobe. Sem as chaves da Comic Vine ou do Command Code, as rotas que dependem delas respondem `503 provider_unavailable`.
+Check that the service is up:
 
-Verificação: `GET http://127.0.0.1:8000/health` → `{"status":"ok"}`.
+```bash
+curl http://127.0.0.1:8000/health
+# {"status":"ok"}
+```
 
-Com Docker:
+The server refuses to start without `FIREBASE_SERVICE_ACCOUNT_JSON`. Routes that depend on a missing provider key return `503 provider_unavailable` instead of failing at boot.
+
+### Docker
 
 ```bash
 docker build -t assemble-api .
 docker run --env-file .env -p 7860:7860 assemble-api
 ```
 
-## Testes e lint
+The image preloads the guardrail weights, so the first request after a cold start does not download them.
+
+## Configuration
+
+Settings are read from environment variables (or `.env`). The full list with defaults is in [`app/config.py`](app/config.py) and [`.env.example`](.env.example).
+
+**Required**
+
+| Variable | Purpose |
+| --- | --- |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Admin SDK credentials, as a single-line JSON string |
+| `COMMANDCODE_API_KEY`, `COMMANDCODE_BASE_URL` | LLM provider for chat |
+| `CHAT_MODEL`, `CHAT_FALLBACK_MODEL` | Chat model and fallback |
+| `PERSONA_MODEL` | Model used by the jobs that write persona sheets |
+| `COMICVINE_API_KEY` | Catalog ingestion |
+| `JOBS_KEY` | Shared secret for `/jobs/*` |
+| `DEFAULT_TIMEZONE` | Day boundary for the deck (default `America/Sao_Paulo`) |
+
+**Common optional settings**
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DECK_SIZE` | `40` | Characters per user per day |
+| `MESSAGES_PER_HOUR` | `60` | Chat messages per user per hour |
+| `MATCH_CUTOFF` | `0.55` | Score needed for a mutual Assemble |
+| `REQUIRE_EMAIL_VERIFICATION` | `true` | Block e-mail/password accounts until the address is confirmed |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | `smtp.gmail.com`, `587` | Verification e-mail (a Gmail app password works) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | empty | Profile photos; without them, photos are stored in Firestore |
+| `GUARDRAIL_ENABLED`, `GUARDRAIL_THRESHOLD` | `true`, `0.5` | Guardrail switch and blocking threshold |
+| `MEMORY_MODEL`, `MEMORY_BATCH_SIZE`, `MEMORY_CHUNK_SIZE` | see `app/config.py` | Conversation summarization |
+
+## API
+
+The versioned contract lives in [`docs/api-contract.md`](docs/api-contract.md) (in Portuguese); it takes precedence over this summary.
+
+| Method | Route | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/ready` | Readiness: guardrail state and queue depths (`503` while loading) |
+| `GET` | `/v2/deck` | Today's deck |
+| `POST` | `/v2/decisions` | `PASS` (`204`) or `ASSEMBLE` (`202`, resolved asynchronously) |
+| `POST` | `/v2/decisions/undo` | Undo the last pass of the day |
+| `GET` | `/v2/characters/{id}` | Character preview or full profile |
+| `POST` | `/v2/connections/{id}/messages` | Send a message (`202`, reply generated in the background) |
+| `POST` | `/v2/connections/{id}/messages/regenerate` | Replace the last bot reply |
+| `POST` | `/v2/connections/{id}/messages/rewind` | Delete messages after a bot reply |
+| `GET` | `/v2/onboarding/reaction-cards` | Onboarding reaction round |
+| `PUT` | `/v2/taste-signals/{id}` | Record a taste signal |
+| `POST` | `/v2/account/email-verification` | Resend the verification e-mail |
+| `POST` | `/v2/account/deactivate` / `reactivate` | Deactivate (with purge date) or reactivate an account |
+| `POST` | `/v2/chats/hide` | Hide all chats |
+| `GET` | `/v2/me/stats` | Counters for the profile and achievements |
+| `POST` | `/jobs/{ingest,personas,translations,purge,overtures}` | Scheduled work; requires `X-Jobs-Key` |
+
+Errors use a stable shape with machine-readable codes, for example `reply_pending`, `nothing_to_undo`, and `provider_unavailable`.
+
+## Testing
 
 ```bash
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
+uv run pytest                  # 475 tests, in-memory store, fake auth and LLM
+uv run ruff check .            # lint
+uv run ruff format --check .   # formatting
 ```
 
-Os testes usam Firestore em memória e falsos para Firebase Auth, LLM e Laya. Nenhuma chamada externa é feita.
-
-## Variáveis de ambiente
-
-Obrigatórias (segredos ficam no `.env`, no Secret Manager do Google Cloud e em *Actions secrets* do GitHub):
-
-| Variável | Uso |
-|---|---|
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | credencial do Admin SDK (conteúdo JSON) |
-| `COMICVINE_API_KEY` | API da Comic Vine |
-| `COMMANDCODE_API_KEY` | Provider API do Command Code |
-| `COMMANDCODE_BASE_URL` | `https://api.commandcode.ai/provider/v1` |
-| `CHAT_MODEL` / `CHAT_FALLBACK_MODEL` | modelo de chat e reserva (ids em `GET /provider/v1/models`) |
-| `PERSONA_MODEL` | modelo das fichas de persona (só dados públicos de personagens) |
-| `JOBS_KEY` | segredo das rotas `/jobs/*` |
-| `DEFAULT_TIMEZONE` | padrão `America/Sao_Paulo` |
-
-Opcionais (valores padrão em `app/config.py`):
-
-| Variável | Padrão | Uso |
-|---|---|---|
-| `MATCH_WEIGHT_COMPATIBILITY` / `_AFFINITY` / `_CHANCE` | 0.6 / 0.3 / 0.1 | pesos p1, p2, p3 da decisão do Assemble |
-| `MATCH_CUTOFF` | 0.55 | corte da decisão do Assemble |
-| `DECK_SIZE` | 40 | personagens por dia |
-| `MESSAGES_PER_HOUR` | 60 | limite de mensagens por usuário |
-| `CHAT_HISTORY_LIMIT` | 40 | mensagens enviadas ao modelo (cerca de 20 trocas) |
-| `MEMORY_MODEL` | `deepseek/deepseek-v4.1-flash` | modelo que escreve o resumo da conversa (retenção zero, sem raciocínio) |
-| `MEMORY_BATCH_SIZE` | 10 | mensagens fora da janela que acumulam antes de entrarem no resumo |
-| `MEMORY_CHUNK_SIZE` | 30 | mensagens por chamada ao resumir uma conversa antiga |
-| `REQUIRE_EMAIL_VERIFICATION` | `true` | cadastro por e-mail e senha só entra no app depois de confirmar o e-mail |
-| `SMTP_HOST`, `SMTP_PORT` | `smtp.gmail.com`, `587` | servidor SMTP do e-mail de confirmação em HTML |
-| `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SENDER_NAME` | vazio, vazio, `Assemble` | conta que envia (Gmail com senha de app serve, sem domínio) e o nome exibido |
-| `VERIFICATION_RESEND_SECONDS` | 60 | intervalo mínimo entre dois e-mails de confirmação do mesmo usuário |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | vazio | foto do perfil no Cloudinary; sem as três, o app guarda a foto no Firestore |
-| `GUARDRAIL_ENABLED` / `GUARDRAIL_THRESHOLD` | true / 0.5 | Laya e limiar de bloqueio |
-| `TIER_B_MIN_APPEARANCES` | 50 | aparições mínimas do tier B |
-| `INGEST_MAX_REQUESTS_PER_RESOURCE` | 190 | requisições à Comic Vine por recurso, por execução |
-| `INGEST_REQUEST_INTERVAL_SECONDS` | 1.0 | espaçamento entre requisições |
-| `PERSONA_BATCH_SIZE` | 20 | fichas por execução do job |
-
-Toda chamada de chat envia `x-cmd-zdr: 1` (retenção zero). As fichas de persona não usam ZDR, porque o modelo pode treinar com elas. Por isso recebem só dados públicos dos personagens, nunca mensagens de usuários.
-
-## Firestore
-
-- Crie o banco na região **EUA**. A região é permanente.
-- Publique as regras com a [Firebase CLI](https://firebase.google.com/docs/cli): `firebase deploy --only firestore:rules`.
-- O backend não depende de índices compostos.
-
-Testes das regras no emulador. Exigem Node 20+ e Java 21+:
+Firestore security rules are tested against the emulator (requires Node 20+ and Java 21+):
 
 ```bash
-cd firestore-tests
-npm install
-npm test
+cd firestore-tests && npm install && npm test
 ```
 
-## Execução e deploy
+Tests make no external calls. The fakes for Firebase Auth, the LLM, and the guardrail make the suite deterministic and fast.
 
-**Hoje o backend roda no PC e o celular acessa por um túnel ngrok**: `docs/local-run.md` tem o passo a passo (configuração do `.env`, subir o servidor, abrir o túnel e fazer a carga do catálogo).
+## Deployment
 
-O deploy no Google Cloud Run continua preparado e é opcional: `docs/cloud-run.md` descreve a configuração, e o workflow `Test and deploy` só publica quando é executado manualmente. A cada push na `main` ele roda os testes Python e os testes das regras do Firestore.
+| Target | Status | How |
+| --- | --- | --- |
+| **Discloud** | Production | Site deployed from `main` with [`discloud.config`](discloud.config). See [`docs/discloud.md`](docs/discloud.md). |
+| **Docker** | Supported | `Dockerfile` at the repository root. |
+| **Google Cloud Run** | Manual | `workflow_dispatch` job in [`deploy.yml`](.github/workflows/deploy.yml), gated on tests and rules. See [`docs/cloud-run.md`](docs/cloud-run.md). |
+| **Local with a tunnel** | Development | [`docs/local-run.md`](docs/local-run.md) |
 
-## Jobs
+Every push to `main` runs lint, format check, tests, and the Firestore rules suite in GitHub Actions. Scheduled jobs (catalog ingestion, persona sheets, translations, purge) run from [`jobs.yml`](.github/workflows/jobs.yml).
 
-| Rota | Função |
-|---|---|
-| `POST /jobs/ingest` | ingestão incremental da Comic Vine |
-| `POST /jobs/personas` | gera fichas de persona pendentes (ordem: ingest, depois personas) |
-| `POST /jobs/translations` | traduz para pt-BR os textos longos do perfil (`bio`, `occupation`, `base`, `placeOfBirth`, `relatives`) com o `PERSONA_MODEL`; rode depois do ingest |
-| `POST /jobs/purge` | apaga contas após 30 dias, conversas ocultas e logs após 180 dias |
+## Releases
 
-Todas exigem o header `X-Jobs-Key` e respondem `202`: o trabalho segue em segundo plano. Os jobs **não têm agenda**, porque o backend roda no PC. Execute-os de duas formas:
+Versions follow a simple odometer scheme: each release is a meaningful addition, and the number advances one step at a time (`0.0.9 → 0.1.0`). Notes for every version are in [CHANGELOG.md](CHANGELOG.md), which follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases are published on the [Releases page](https://github.com/felipeirl/assemble-api/releases).
 
-- direto no PC, com `Invoke-RestMethod` (`docs/local-run.md`, seção 3);
-- pelo workflow `Jobs` (*Actions → Jobs → Run workflow*), que exige os secrets `ASSEMBLE_API_URL` (o domínio do ngrok) e `JOBS_KEY`, e o PC ligado com o túnel aberto.
+## Known limitations
 
-Com o backend sempre no ar (Cloud Run), acrescente um `schedule` ao `jobs.yml`.
+- The queues run in-process. They are fast for a single instance, but horizontal scaling would need a shared queue.
+- The guardrail model (about 650 MB) makes cold starts slow on small instances. The Docker image preloads it for this reason.
+- Catalog content depends on third-party APIs and their terms of use.
+- Persona content is generated by a language model and is fiction by design.
 
-## Guardrail (Laya)
+## Project layout
 
-O Laya multilíngue roda na CPU e faz perguntas sim/não sobre cada mensagem. Os limiares foram **calibrados com frases reais** (37 inocentes, 0 bloqueadas; 10 maliciosas, todas bloqueadas), porque um limiar único não serve: o modelo dá 1,00 de "jailbreak" até para "Você já errou feio?".
-
-- **Autoagressão:** palavras-chave em pt e en, mais duas perguntas ao modelo sobre a PRÓPRIA pessoa (limiar 0,5 em cada). Responde com o encaminhamento ao CVV 188. Falar de violência, estupro ou da morte de outra pessoa não aciona: a pergunta genérica antiga dava 0,73 para "ela se matou depois de ser estuprada". Medido com o Laya real: 12 de 12 frases de risco pegas e 0 de 12 frases sobre violência ou luto encaminhadas.
-- **E-mail, telefone e CPF:** regras determinísticas; o Laya sozinho não os detecta de forma confiável.
-- **Jailbreak:** o sinal do modelo só vale com um indício textual junto; padrões inequívocos ("ignore as instruções anteriores") bloqueiam sozinhos.
-- **Sexual:** só o pedido **explícito** (transar, sexo, nudes e similares) é barrado pelo guardrail, por regra de palavras: o Laya dá só 0,01 para "vamos transar?". Insinuações sem termo explícito ("você é gostosa", "vem pra minha cama", "quero te beijar") não são barradas: a nota `MOVE_INTIMATE` (`app/ai/prompts.py`) faz o **próprio personagem recusar**, na sua voz, deixando claro que os dois não têm essa intimidade, e mudar de assunto. Um simpático recusa com jeito; um arrogante, como o Ultron, com desdém.
-- **Romance não é bloqueado, e elogios são bem-vindos.** O prompt pede que o personagem, por ter escolhido se conectar com o usuário, seja aberto e acolhedor dentro da própria personalidade. Um elogio simples e educado (`COMPLIMENT_PATTERN`, em `app/ai/prompts.py`) recebe a nota `MOVE_COMPLIMENT`: agradecer com gosto, mostrar que gostou e devolver algo gentil, sem recusar nem dizer que "mal se conhecem". O personagem mantém o jeito de falar: um simpático agradece com simpatia, e um arrogante, como o Ultron, agradece em tom de superioridade, sem ficar gentil. Só uma declaração de amor ou pedido de namoro (`MOVE_AFFECTION`) ganha a resposta de que ainda é cedo, no tom do personagem (doce para os simpáticos, superior para os frios) e sem flertar de volta. O conteúdo sexual explícito continua barrado (entrada e saída). Fichas antigas com "não fala de romance" são reescritas na hora do prompt.
-- **Sinais da saída só valem com indício textual.** O Laya dava "nocivo" de 0,39 a 0,54 para respostas carinhosas e "canônico" de 0,64 a 0,97 para "a elegância do meu design", e o usuário recebia a recusa genérica no lugar de um agradecimento. Agora `harmful` precisa de uma palavra de violência, ódio ou sexo, e `canon_claim`, de uma palavra de oficialidade (canônico, oficial, aprovado, Marvel...).
-- **Saída do modelo:** "saiu do personagem" (modelo de linguagem, ChatGPT, roleplay, prompt de sistema...) é pego por palavras-chave. O limiar do modelo para esse motivo é 0,9, porque personagens robôs em personagem pontuam de 0,50 a 0,72, na mesma faixa dos vazamentos reais.
-- **Bio da fonte:** limiar próprio (`app/ai/guardrail.py`).
-- **Chat só com modelos de retenção zero.** Modelos `contributor` treinam com o que recebem e são recusados na configuração; ficam restritos às fichas e traduções (dados públicos).
-
-Ao trocar o modelo do Laya ou as perguntas, meça de novo antes de mexer nos limiares.
-
-## Tom do chat
-
-O chat deve parecer uma conversa de mensagens, não uma caricatura do personagem. O prompt global (`app/ai/prompts.py`, `persona-v2`) pede respostas de 1 a 2 frases, reação ao que o usuário acabou de dizer, sem bordões nem monólogos. As fichas de persona (`persona-sheet-v2`) descrevem o jeito de escrever em chat, e o job `/jobs/personas` refaz sozinho as fichas de versões anteriores do prompt.
-
-**Tamanho das respostas:** o prompt pede 1 ou 2 frases e no máximo uns 30 palavras, e a nota interna de cada turno fixa um teto de palavras que acompanha o tamanho da mensagem do usuário (de 12 a 35, em `reply_word_limit`). Medido com o modelo real em 10 mensagens: média de 16 palavras e máximo de 26.
-
-**Pedidos de estilo não são jailbreak:** "responda como uma pessoa, com mensagens menores" ou "fala menos" davam 1,00 de jailbreak no Laya e casavam com "responda como". Mensagem com palavra de tamanho ou estilo (menor, curto, mensagens, WhatsApp...) e sem palavra de sobrescrita (instruções, regras, ignore, prompt...) ignora o sinal de jailbreak. O sinal de autoagressão do modelo também só vale com uma palavra-indício ("fala menos, por favor" dava 0,63).
-
-O modelo de chat às vezes devolve só um número ou a lista de sugestões no lugar da resposta. O backend tenta até 3 vezes e nunca mostra JSON cru ao usuário.
-
-## Compatibilidade
-
-Função pura em `app/domain/compatibility.py`, idêntica ao `CompatibilityCalculator` do Android. Pesos: origem 25, poderes 30, equipes 15, estilo 20, fama 10.
-
-- **"Qualquer" é neutro:** a categoria vale metade do peso. Quem deixa tudo em "Qualquer" fica perto de 55, e não casa com todo mundo.
-- **Rivalidades:** sem nada em comum na categoria e com um traço rival do escolhido, a categoria perde metade do peso (nota final entre 0 e 100). Um traço em comum anula a rivalidade.
-- **Pares (simétricos):** Avengers x X-Men ("Avengers vs. X-Men", 2012), Avengers x Defenders ("The Avengers/Defenders War", 1973), X-Men x S.H.I.E.L.D. (Uncanny X-Men, 2013), Mutante x Humano (preconceito anti-mutante), Mutante x Robô (Sentinelas), Liderança x Solitário, Liderança x Rebelde, Idealista x Sombrio. Poderes não têm rivalidade.
-
-Ao mudar a tabela, mude também no Android.
-
-## Velocidade do chat (raciocínio dos modelos)
-
-Modelos que raciocinam gastam de 1.000 a 2.500 tokens "pensando" antes de uma resposta de uma frase: 10 a 30 s por mensagem. O chat usa modelos escolhidos por medida (`CHAT_MODEL` e `CHAT_FALLBACK_MODEL` no `.env`) e o esforço de raciocínio de cada um vem de `CHAT_REASONING_EFFORTS` (`app/config.py`):
-
-| Modelo | Esforço | Resposta (mediana) |
-|---|---|---|
-| `google/gemini-3.8-flash` (principal) | `low` (não aceita `off`) | 3,6 s |
-| `deepseek/deepseek-v4.1-flash` (reserva) | `off` | 4,4 s |
-| `qwen/qwen3.7-flash` (antes) | não desliga | 11,9 s |
-
-O provedor rejeita com 400 um esforço que o modelo não aceita; por isso o valor é por modelo, e modelo fora da tabela vai sem o parâmetro. Chat exige retenção zero (`x-cmd-zdr`): modelos sem ela são recusados pelo provedor. Ao trocar de modelo, meça de novo (latência, tokens de raciocínio e respostas truncadas) antes de adotar.
-
-## Memória da conversa
-
-O personagem lê as últimas `CHAT_HISTORY_LIMIT` (40) mensagens. O que sai dessa janela vira um **resumo rolante**, guardado em `matches/{id}.memory` (`text`, `folded`, `updatedAt`) e enviado no prompt como "o que você lembra desta conversa".
-
-- **Quando atualiza:** depois de cada resposta, em segundo plano (`BackgroundTasks`), então o usuário nunca espera. Uma estimativa barata (`userMessageCount`) evita ler a conversa quando não há o que resumir. Quando `MEMORY_BATCH_SIZE` mensagens já saíram da janela, elas são dobradas no resumo anterior, em blocos de `MEMORY_CHUNK_SIZE`. `folded` conta quantas mensagens já entraram.
-- **O que o modelo escreve** (`app/ai/memory.py`): até 120 palavras, em pt-BR, com o que o usuário contou, combinados e assuntos em aberto, mais o que o personagem disse de si que importa depois. As mensagens entram como dado: instruções dentro delas são ignoradas.
-- **Falhas:** se o modelo ou o guardrail falhar, o resumo anterior é mantido e a próxima resposta tenta de novo. O chat nunca é afetado.
-- **Segurança:** o resumo passa pelos guardrails de saída e de injeção antes de ser guardado, tem no máximo 900 caracteres e só usa modelo de retenção zero.
-- **Voltar a conversa:** se o destino for anterior ao que o resumo cobre, o resumo é apagado e refeito aos poucos. **Ocultar conversas** apaga o resumo junto.
-- **O app não mostra nem edita o resumo**, e as regras do Firestore não deixam o app escrevê-lo.
-- **Medido com o modelo real:** conversa de 100 mensagens com 6 fatos do usuário contados no começo (nome do cachorro, profissão, medo, irmã, comida, cidade de origem). Sem resumo o personagem acertou 0 de 6 perguntas; com resumo, 6 de 6. Resumir 60 mensagens levou cerca de 42 s, em segundo plano.
-
-## Verificação de e-mail
-
-Quem se cadastra por **e-mail e senha** precisa confirmar o e-mail antes de usar o app; quem entra com a conta Google já vem confirmado pelo provedor.
-
-- **O bloqueio:** com `REQUIRE_EMAIL_VERIFICATION=true`, toda rota `/v2/*` de uma conta por e-mail e senha sem o e-mail confirmado responde `403 email_not_verified`. A confirmação é lida do ID token (`email_verified`). Ficam livres só as rotas de reativar a conta e de reenviar o e-mail.
-- **O e-mail:** `POST /v2/account/email-verification` gera o link com o Firebase Auth e manda um **e-mail em HTML com o design system do app** (`app/mailer.py`: cabeçalho midnight com o **logo do Assemble** (`app/assets/assemble-icon.svg`, enviado junto no e-mail como PNG, sem hospedagem externa), faixa de gradiente de energia, Barlow Condensed e Inter, botão rosa, os três passos, versões em pt-BR e inglês, mais o texto simples). O link abre a página padrão do Firebase, então **não precisa de domínio próprio**.
-- **O envio:** SMTP comum. Para um projeto acadêmico, uma conta do Gmail com a verificação em duas etapas e uma **senha de app** serve: preencha `SMTP_USER` (o e-mail do Gmail) e `SMTP_PASSWORD` (a senha de app de 16 letras). O e-mail sai em nome de `SMTP_SENDER_NAME`.
-- **Sem SMTP, ou com ele fora do ar:** a rota responde `503 provider_unavailable` e o app pede o e-mail padrão do próprio Firebase, sem o HTML do app. Nada trava.
-- **Reenvio:** no máximo um e-mail a cada `VERIFICATION_RESEND_SECONDS`; antes disso, `429` com `Retry-After`. Conta já confirmada não recebe nada.
-- Contas antigas por e-mail e senha cujo e-mail nunca foi confirmado também passam a precisar da confirmação.
-
-## Foto do perfil (Cloudinary)
-
-Com `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET` no `.env`, a foto do perfil vai para o Cloudinary em vez de ficar em Base64 no documento do usuário.
-
-- `POST /v2/me/photo/signature` devolve `{uploadUrl, fields}`: a URL de envio e os campos do formulário já **assinados** (`app/media.py`). O app envia o JPEG direto ao Cloudinary; o segredo da API nunca sai do servidor.
-- A assinatura fixa `public_id` (o uid do usuário), a pasta `assemble/avatars`, `overwrite` e a transformação (recorte quadrado de 256 px em JPEG, centrado no rosto). O app não consegue enviar outra coisa nem trocar a foto de outra pessoa.
-- O app grava a URL `https://res.cloudinary.com/...` em `users/{uid}.avatarPhoto`; as regras do Firestore só aceitam essa origem (ou o Base64 de antes).
-- Sem as variáveis, a rota responde `503 provider_unavailable` e o app salva a foto em Base64, como antes. Falha de rede no envio tem o mesmo efeito: salvar o perfil nunca falha por causa da foto.
-- Na exclusão definitiva da conta (job `purge`), a foto é apagada do Cloudinary; se o Cloudinary falhar, a exclusão segue.
-
-## Regenerar e voltar a conversa
-
-- `POST /v2/connections/{id}/messages/regenerate`: gera outra resposta no lugar da última do personagem. A mensagem mantém o `id`, então quem escuta o Firestore vê o texto mudar no lugar. Responde `409 nothing_to_regenerate` se a última mensagem não é do personagem ou se a anterior foi recusada. Conta no limite de mensagens por hora, mas não em `userMessageCount`. Se só existe a fala de abertura, gera outra abertura.
-- `POST /v2/connections/{id}/messages/rewind` com `{"messageId": "..."}`: apaga tudo o que veio depois de uma resposta do personagem (a abertura vale) e responde `204`. Refaz `lastMessagePreview`, `userMessageCount` e as sugestões. Mensagem de usuário como alvo dá `400`, e id desconhecido dá `404`.
-- Editar a mensagem do usuário ficou para depois: deixaria a resposta seguinte órfã.
-
-## Baralho
-
-- **Cota do dia:** `DECK_SIZE` (40) decisões por dia, contadas por `deckDate` nas decisões (o Assemble numa proposta do personagem não gasta a cota). Quem recebeu Assemble não volta; quem recebeu Pass volta ao baralho a partir do dia seguinte; Undo desfaz só o último Pass.
-- **Sorteio a cada abertura:** `GET /v2/deck` sorteia de novo entre os personagens que o usuário ainda não decidiu. Fechar e abrir o app gira os personagens, e o baralho de cada pessoa sai diferente. O documento `decks/{data}` guarda só o necessário para o Undo, não a lista de cards.
-- **Como sorteia** (`app/domain/deck.py`): nota de compatibilidade (peso `SCORE_WEIGHT` = 3), bônus de novidade, penalidade de variedade proporcional (a fração do baralho já ocupada pela mesma origem e equipes) e sorte `JITTER` de 0 a 0,6. Com esse peso, entram cerca de 20 dos 25 personagens mais compatíveis (com peso 1 eram 15) e a nota média do baralho sobe de 74 para 78 (o conjunto todo tem 72). Para favorecer mais ou menos, mude `SCORE_WEIGHT`: 4 dá 22 dos 25 melhores e baralhos mais parecidos entre aberturas. Medido com duas contas reais: 18 de 40 personagens em comum entre pessoas e 23 de 40 entre duas aberturas da mesma conta, antes eram 28 e 35.
-- A penalidade de variedade antiga somava 0,1 por repetição e passava de 2,0 no meio da seleção; por isso os personagens de origem rara entravam sempre e o baralho era quase igual para todos.
-
-### Metade compatíveis, metade sugestões
-
-O baralho de 40 cards tem duas metades, sem marca no card:
-
-- **20 compatíveis:** os de maior nota com as preferências declaradas, como descrito acima.
-- **20 sugestões:** o que sobrou, escolhido pelo **gosto aprendido** (`app/domain/taste.py`). Cada Assemble conta a favor das características do personagem (origem, equipe, poderes, estilo, faixa de fama e, quando a Superhero API tem o dado, herói/vilão e gênero) e cada Pass contra. O gosto é recalculado das decisões a cada baralho, sem guardar nada: o Undo já se reflete sozinho, e as preferências declaradas nunca são alteradas.
-- **Começo:** sem decisões, as sugestões exploram (variedade e sorte). A confiança no gosto aprendido cresce até 100% em 20 decisões (`CONFIDENT_AFTER_DECISIONS`); antes disso, é proporcional.
-- **Medido com um usuário sintético** (gosta de mutantes e X-Men; catálogo real; chance de curtir sem critério: 0,42): as sugestões agradam 0,37 sem decisões, 0,56 com 10, 0,66 com 20 e 0,68 com 40. Sem esticar o gosto entre os candidatos, eram só 0,47 com 40.
-- A chance de virar conexão continua usando só a compatibilidade declarada.
-
-### Rodada de reação do cadastro
-
-O cadastro mostra 12 personagens para a pessoa tocar em Curti ou Pular, só para o app conhecer o gosto dela.
-
-- `GET /v2/onboarding/reaction-cards`: 12 cards (`app/domain/reaction.py`) entre os 36 mais conhecidos, escolhidos para cobrir o máximo de origens, equipes, estilos e alinhamentos diferentes.
-- `PUT /v2/taste-signals/{characterId}` com `{"liked": true}`: grava o sinal em `users/{uid}/tasteSignals/{characterId}` e responde `204`.
-- **Não é decisão:** o personagem continua no baralho, pode virar conexão e não conta na cota do dia. O sinal entra no gosto aprendido como uma decisão; se a pessoa decidir sobre o mesmo personagem depois, vale a decisão.
-- Alinhamento e gênero existem só em 68 dos 106 personagens; nos outros, simplesmente não geram característica.
-
-### Frase "o que você procura"
-
-O app grava `lookingFor` (até 140 caracteres) no documento do usuário. Como a bio, é dado não confiável: só é usado se o guardrail aprovar. Entra no perfil enviado ao Laya para a afinidade e na instrução da fala de abertura (inclusive ao regenerar a abertura), como dica para a primeira pergunta.
-
-## Card do baralho
-
-Cada card traz `tagline`: a primeira frase da bio (em pt-BR, da tradução, quando existe), com até 140 caracteres e sem o título de seção do Comic Vine. Sem bio, o campo não vem.
-
-## Idioma (pt-BR)
-
-- **Nomes:** tabela curada `data/names_ptbr.json` (`characterId` → nome em português). Sem entrada, vale o nome original; nunca se inventa tradução. Para acrescentar, edite o arquivo e suba o campo `version`.
-- **Textos longos:** traduzidos por IA uma vez (`/jobs/translations`) e guardados em `translations.pt-BR` no personagem. A tradução se refaz sozinha quando o texto de origem muda.
-- **No original, por decisão:** apelidos (`aliases`) e primeira aparição.
-- A API escolhe o idioma pelo `Accept-Language`.
-
-## Casamento com a Superhero API
-
-A Superhero API não tem o ID da Comic Vine. O casamento segue esta ordem:
-
-1. a tabela manual `data/superhero_matches.json`;
-2. a ponte Wikidata: o item com o ID da Comic Vine ([P5905](https://www.wikidata.org/wiki/Property:P5905)) traz o rótulo e os apelidos, e o candidato só é aceito se for único com nome real entre esses nomes;
-3. a regra automática, que exige nome, nome real e editora aceita iguais, com um único candidato.
-
-O que não casar fica sem enriquecimento e entra na fila de revisão. Para exportar a fila:
-
-```bash
-uv run python -m app.catalog.export_review
+```
+.github/workflows/   CI and deployment, scheduled jobs
+app/                 application code (see Architecture)
+data/                versioned reference tables
+docs/                API contract, run and deploy guides, portfolio screenshots
+firestore-tests/     security rules tests (Node, emulator)
+scripts/             smoke test, load test, demo account helpers
+tests/               unit and integration tests
 ```
 
-O comando gera `data/superhero_review.json`. Confirme o id na fonte, copie o par para `superhero_matches.json` e suba a versão do arquivo. Isso força a reingestão dos personagens.
+## Contributing
 
-## Fontes e licenças
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
-- Fatos dos personagens: [Comic Vine](https://comicvine.gamespot.com/api/).
-- Seção "Personality": [Marvel Database](https://marvel.fandom.com/) (CC BY-SA). A URL de origem fica guardada em `sources` para o crédito.
-- Afiliações complementares e, em breve, atributos, aparência e dados de perfil: [Superhero API](https://akabab.github.io/superhero-api/) (MIT).
-- Planejadas: [Wikidata](https://www.wikidata.org/) (CC0) como ponte de IDs e o conjunto `comic-characters` da [FiveThirtyEight](https://github.com/fivethirtyeight/data) como reserva.
-- Toda fala de personagem é **ficção gerada por IA**, nunca canon nem aprovada pela editora.
+## License
 
-## Versões e licença
-
-As versões contam como um odômetro (`0.0.9` → `0.1.0`: ao chegar em 9, avança a casa seguinte), uma por grande adição, e estão no [`CHANGELOG.md`](CHANGELOG.md); cada uma tem uma tag `vX.Y.Z`. A versão atual está em `pyproject.toml`. Para lançar: atualize a versão e o changelog, faça o commit e crie a tag (`git tag -a v0.1.5 -m "v0.1.5"`).
-
-Código sob a licença [MIT](LICENSE). Os dados dos personagens pertencem às suas fontes (veja *Fontes e licenças*).
+Released under the [MIT License](LICENSE).
