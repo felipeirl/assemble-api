@@ -2,6 +2,17 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). As versões contam como um odômetro: cada release é uma grande adição e o número sobe de um em um (`0.0.8`, `0.0.9`, `0.1.0`, `0.1.1`...). Ao chegar em 9, avança a casa seguinte. Correções pequenas entram na release seguinte.
 
+## [0.1.5] - 2026-10-27
+
+### Adicionado
+- Pass volta ao baralho no dia seguinte: um Pass de um dia anterior deixa de contar como decidido, e o personagem pode receber nova decisão. Assemble nunca volta.
+- Conta de demonstração: `deckPin` define a ordem do baralho e `forceMatch` faz o Assemble sempre dar match, sem o Laya nem o sorteio. `scripts/prepare_demo_take.py` reseta a conta e fixa o baralho.
+
+### Alterado
+- O Assemble numa proposta do personagem (overture) não gasta a cota diária de 40 do baralho.
+- O README foi reescrito, com guias de contribuição (`CONTRIBUTING.md`) e de segurança (`SECURITY.md`). As capturas do app estão em `docs/portfolio/`.
+- `ngrok.log` deixou de ser versionado.
+
 ## [0.1.4] - 2026-10-07
 
 Compatível com o app 0.1.3; as novidades visíveis (aviso de personagem que quer dar Assemble) pedem o app 0.1.4.
