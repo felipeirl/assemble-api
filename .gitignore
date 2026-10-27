@@ -43,6 +43,7 @@ firestore-debug.log
 # Logs do servidor local
 server.log
 server.out.log
+ngrok.log
 
 # Documentação interna (especificações de trabalho); docs/*.md são públicos
 docs/internal/
