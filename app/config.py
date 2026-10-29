@@ -15,12 +15,9 @@ class Settings(BaseSettings):
     chat_fallback_model: str | None = None
     persona_model: str | None = None
     # Esforço de raciocínio por modelo de chat. Raciocinar custa de 10 a 30 s por resposta e o chat
-    # precisa ser rápido; cada modelo aceita valores diferentes (o Gemini não desliga, o DeepSeek
-    # sim). Modelo fora da tabela é chamado sem o parâmetro.
-    chat_reasoning_efforts: dict[str, str] = {
-        "google/gemini-3.8-flash": "low",
-        "deepseek/deepseek-v4.1-flash": "off",
-    }
+    # precisa ser rápido; cada modelo aceita valores diferentes. Modelo fora da tabela é chamado sem
+    # o parâmetro. Vazia: o chat usa modelos que não raciocinam (xiaomi/mimo-v2.6-flash e -pro).
+    chat_reasoning_efforts: dict[str, str] = {}
     jobs_key: SecretStr | None = None
     # Verificação de e-mail no cadastro por e-mail e senha (o login com Google já vem confirmado).
     require_email_verification: bool = True
@@ -60,7 +57,7 @@ class Settings(BaseSettings):
     guardrail_threshold: float = 0.5
     chat_history_limit: int = 40
     # Resumo rolante do que saiu da janela de histórico (retenção zero, como o chat).
-    memory_model: str | None = "deepseek/deepseek-v4.1-flash"
+    memory_model: str | None = "xiaomi/mimo-v2.6-flash"
     memory_batch_size: int = 10
     memory_chunk_size: int = 30
     messages_per_hour: int = 60

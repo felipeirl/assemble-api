@@ -70,12 +70,12 @@ def test_chat_passes_the_reasoning_effort_of_each_model():
     assert llm.calls[-1]["reasoning_efforts"] == efforts
 
 
-def test_default_settings_turn_off_or_limit_reasoning_for_the_chat_models():
+def test_default_settings_send_no_reasoning_effort_to_the_chat_models():
     from app.config import Settings
 
-    efforts = Settings().chat_reasoning_efforts
-    assert efforts["google/gemini-3.8-flash"] == "low"
-    assert efforts["deepseek/deepseek-v4.1-flash"] == "off"
+    settings = Settings(_env_file=None)
+    assert settings.chat_reasoning_efforts == {}
+    assert settings.memory_model == "xiaomi/mimo-v2.6-flash"
 
 
 def test_prompt_contains_rules_facts_persona_and_delimited_summary():
