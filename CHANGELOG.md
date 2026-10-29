@@ -2,6 +2,11 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). As versões contam como um odômetro: cada release é uma grande adição e o número sobe de um em um (`0.0.8`, `0.0.9`, `0.1.0`, `0.1.1`...). Ao chegar em 9, avança a casa seguinte. Correções pequenas entram na release seguinte.
 
+## [0.1.6] - 2026-10-29
+
+### Alterado
+- Modelos de IA trocados: o Gemini e o DeepSeek saíram do plano GOAT do Command Code. O chat usa `xiaomi/mimo-v2.6-flash`, com `xiaomi/mimo-v2.6-pro` de reserva (`CHAT_MODEL` e `CHAT_FALLBACK_MODEL`), e o resumo de memória passa a usar `xiaomi/mimo-v2.6-flash` por padrão. Os dois não raciocinam, então `CHAT_REASONING_EFFORTS` fica vazio por padrão e nenhum modelo recebe o parâmetro.
+
 ## [0.1.5] - 2026-10-27
 
 ### Adicionado
