@@ -62,6 +62,7 @@ jobs:
       APP_URL: ${{ vars.DISCLOUD_APP_URL || 'https://assemble.discloud.dev' }}
     steps:
       - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v10.2.0
 
       # Só arquivos versionados do commit, sem o que o .discloudignore tira do envio.
       - name: Montar o zip do deploy
@@ -70,13 +71,22 @@ jobs:
             ':(exclude).git*' ':(exclude).github' ':(exclude)docs' ':(exclude)tests' \
             ':(exclude)firestore-tests' ':(exclude)scripts' ':(exclude)backup-pre-reescrita' \
             ':(exclude)Dockerfile' ':(exclude).dockerignore' ':(exclude)_archive'
-          # O builder da Discloud exige um requirements.txt na raiz. O BUILD do discloud.config
-          # já instala o uv e sincroniza tudo pelo uv.lock; este arquivo só satisfaz o builder.
-          printf 'uv\n' > requirements.txt
+          # O builder da Discloud exige um requirements.txt na raiz e roda `uvicorn main:app`
+          # direto (ignora o START), então o uvicorn precisa estar instalado pelo pip. O export
+          # sai do uv.lock; o torch do lock é a build CPU (2.x+cpu), que só existe no índice
+          # do PyTorch, e o uv export não escreve esse índice.
+          {
+            echo '--extra-index-url https://download.pytorch.org/whl/cpu'
+            uv export --frozen --no-dev --no-hashes --no-annotate --no-header --no-emit-project
+          } > requirements.txt
           zip -q "$RUNNER_TEMP/app.zip" requirements.txt
           for required in discloud.config main.py pyproject.toml uv.lock requirements.txt; do
             unzip -l "$RUNNER_TEMP/app.zip" | grep -q " $required\$" \
               || { echo "::error::$required ausente do zip"; exit 1; }
+          done
+          for dependency in uvicorn fastapi torch; do
+            grep -q "^$dependency==" requirements.txt \
+              || { echo "::error::$dependency ausente do requirements.txt"; exit 1; }
           done
           unzip -l "$RUNNER_TEMP/app.zip" | tail -1
 

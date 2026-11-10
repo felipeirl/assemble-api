@@ -53,5 +53,5 @@ Deve responder `{"status":"ok"}`. Depois disso:
 - **Porta 8000 no log:** a Discloud roda o próprio `uvicorn main:app` e ignora o `START`. Se o site não responder, cadastre `UVICORN_PORT=8080` nas variáveis de ambiente (o uvicorn lê a porta dessa variável).
 - **`Permission denied: '/.cache'`:** o `main.py` da raiz já manda o cache do Hugging Face para a pasta do projeto; se aparecer, o app não subiu pelo `main.py`.
 
-- **`requirements.txt`:** o deploy pela API exige o arquivo na raiz do zip (o builder da Discloud copia `requirements.txt`). O workflow `ci-cd.yml` gera um mínimo (`uv`) na hora do envio; o `BUILD` do `discloud.config` instala o resto pelo `uv.lock`. O arquivo não é versionado.
+- **`requirements.txt`:** o deploy pela API exige o arquivo na raiz do zip (o builder da Discloud copia `requirements.txt`). O workflow `ci-cd.yml` o gera na hora do envio com `uv export` a partir do `uv.lock` (mais o índice do PyTorch para CPU, que o export não escreve). Ele precisa trazer as dependências de verdade, porque a Discloud ignora o `START` e roda `uvicorn main:app` direto: um arquivo mínimo (só `uv`) derrubou o app com `"uvicorn": executable file not found in $PATH`. O arquivo não é versionado.
 - **Memória:** se o processo morrer ao carregar o Laya, aumente o `RAM`.
