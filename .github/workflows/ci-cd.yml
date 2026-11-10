@@ -1,0 +1,107 @@
+# CI a cada push e pull request na main; CD na Discloud só após um push na main com a CI verde.
+# Segredo necessário (Settings → Secrets and variables → Actions): DISCLOUD_API_TOKEN.
+# Variável opcional: DISCLOUD_APP_URL (padrão: https://assemble.discloud.app).
+# O deploy automático nativo da Discloud (integração com o GitHub) precisa estar desligado,
+# senão ele publica sem esperar esta CI: docs/discloud.md.
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+
+  firestore-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: firestore-tests
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: firestore-tests/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    needs: [test, firestore-rules]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: discloud-deploy
+      cancel-in-progress: false
+    env:
+      DISCLOUD_APP_ID: assemble
+      DISCLOUD_API_URL: https://api.discloud.app/v2
+      APP_URL: ${{ vars.DISCLOUD_APP_URL || 'https://assemble.discloud.app' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # Só arquivos versionados do commit, sem o que o .discloudignore tira do envio.
+      - name: Montar o zip do deploy
+        run: |
+          git archive --format=zip -o "$RUNNER_TEMP/app.zip" HEAD -- . \
+            ':(exclude).git*' ':(exclude).github' ':(exclude)docs' ':(exclude)tests' \
+            ':(exclude)firestore-tests' ':(exclude)scripts' ':(exclude)backup-pre-reescrita' \
+            ':(exclude)Dockerfile' ':(exclude).dockerignore' ':(exclude)_archive'
+          for required in discloud.config main.py pyproject.toml uv.lock; do
+            unzip -l "$RUNNER_TEMP/app.zip" | grep -q " $required\$" \
+              || { echo "::error::$required ausente do zip"; exit 1; }
+          done
+          unzip -l "$RUNNER_TEMP/app.zip" | tail -1
+
+      - name: Enviar o commit à Discloud
+        env:
+          DISCLOUD_API_TOKEN: ${{ secrets.DISCLOUD_API_TOKEN }}
+        run: |
+          test -n "$DISCLOUD_API_TOKEN" \
+            || { echo "::error::Secret DISCLOUD_API_TOKEN não configurado"; exit 1; }
+          http_code=$(curl --silent --show-error --max-time 900 \
+            --output response.json --write-out '%{http_code}' \
+            -X PUT -H "api-token: $DISCLOUD_API_TOKEN" \
+            -F "file=@$RUNNER_TEMP/app.zip" \
+            "$DISCLOUD_API_URL/app/$DISCLOUD_APP_ID/commit")
+          jq . response.json
+          test "$http_code" = "200" \
+            || { echo "::error::A Discloud respondeu HTTP $http_code"; exit 1; }
+
+      # O Laya leva um tempo para aquecer depois do boot: tenta por até 10 minutos.
+      - name: Smoke test em /health
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 15 "$APP_URL/health"; then
+              echo
+              echo "API respondendo na tentativa $attempt"
+              exit 0
+            fi
+            echo "Tentativa $attempt/30 sem resposta; aguardando 20 s"
+            sleep 20
+          done
+          echo "::error::$APP_URL/health não respondeu após o deploy"
+          exit 1

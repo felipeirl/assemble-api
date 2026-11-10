@@ -14,9 +14,13 @@ Exige o plano Platinum ou superior (sites só sobem a partir dele). Com o torch 
 
 No painel da Discloud, registre o subdomínio `assemble` antes do primeiro deploy. Ele precisa bater com o `ID` do `discloud.config`.
 
-## 2. Ligar o GitHub
+## 2. Deploy pelo GitHub Actions
 
-No painel, conecte o repositório `felipeirl/assemble-api` e escolha a branch `main`. A cada push na `main`, a Discloud pega o último commit e faz o deploy de novo.
+O deploy sai do workflow `.github/workflows/ci-cd.yml`: a cada push na `main`, só depois de `test` e `firestore-rules` passarem, o job `deploy` monta um zip do commit (sem o que o `.discloudignore` tira), envia pela API (`PUT /v2/app/assemble/commit`) e confere `/health`.
+
+- Crie o secret `DISCLOUD_API_TOKEN` em Settings → Secrets and variables → Actions (o token vem do painel da Discloud).
+- Desligue o deploy automático nativo da integração com o GitHub (painel da Discloud, ou *Manage installations* no GitHub); senão ele publica sem esperar a CI.
+- Se a URL pública não for `https://assemble.discloud.app`, defina a variável `DISCLOUD_APP_URL` em Settings → Secrets and variables → Actions → Variables.
 
 ## 3. Variáveis de ambiente
 
