@@ -55,6 +55,16 @@ pyproject.toml. Entregue o YAML completo e explique cada decisão não óbvia.
 
 **Alterações manuais do usuário**: criar o secret `DISCLOUD_API_TOKEN`, desligar o deploy automático nativo da Discloud e fazer o merge do PR #1.
 
+### Interação 3: container não sobe após o deploy (produção fora do ar)
+
+**Prompt**: após o merge do PR #2 o usuário perguntou "o que deu?"; a IA consultou o run e o log do job `deploy`. Pedido do usuário depois do diagnóstico: "Sim, corrigir".
+
+**Resultado**: `test` e `firestore-rules` verdes; `deploy` falhou de novo. Desta vez o build passou (o `requirements.txt` foi aceito), mas o container não iniciou: `exec: "uvicorn": executable file not found in $PATH`. A produção ficou fora do ar (HTTP 404, página "Site em manutenção"), porque a troca do container já tinha acontecido.
+
+**Problema encontrado**: o `requirements.txt` mínimo (só `uv`) da Interação 2 foi uma aposta da IA, errada: a Discloud ignora o `START` e roda `uvicorn main:app` direto, então o `uvicorn` precisa estar instalado pelo `pip`. A IA também não avisou antes que um commit pela API podia derrubar o app em produção.
+
+**Alterações realizadas**: o job `deploy` passa a gerar o `requirements.txt` completo com `uv export` a partir do `uv.lock`, com a linha `--extra-index-url https://download.pytorch.org/whl/cpu` no topo (o lock pina `torch==2.14.1+cpu`, que só existe nesse índice), e confere que `uvicorn`, `fastapi` e `torch` estão no arquivo. O job usa `setup-uv`.
+
 <!-- Próximas interações: registrar aqui, uma por uma, conforme acontecerem. -->
 
 (O texto do Prompt 1 acima mantém a URL `.app`, como foi de fato enviado.)
