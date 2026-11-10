@@ -65,6 +65,25 @@ pyproject.toml. Entregue o YAML completo e explique cada decisão não óbvia.
 
 **Alterações realizadas**: o job `deploy` passa a gerar o `requirements.txt` completo com `uv export` a partir do `uv.lock`, com a linha `--extra-index-url https://download.pytorch.org/whl/cpu` no topo (o lock pina `torch==2.14.1+cpu`, que só existe nesse índice), e confere que `uvicorn`, `fastapi` e `torch` estão no arquivo. O job usa `setup-uv`.
 
+### Interação 4: run vermelho com o app no ar; verificação real no painel
+
+**Prompt**: após o merge do PR #3 o usuário pediu para verificar. A IA mostrou que o app estava no ar (`/health` 200) mas o run da `main` estava vermelho. O usuário respondeu: "nao adianta subir pr em cima de pr, preciso que valide realmente, caso precise, acessa o discloud pelo meu brave, verifique, e suba uma pr definitiva".
+
+**Resultado do run (`603a110`)**: `test` e `firestore-rules` verdes; `deploy` vermelho em "Enviar o commit à Discloud" (`jq: parse error`) depois de cerca de 2 minutos. A resposta da API de commit não era JSON (página de erro do proxy). O passo morreu antes de checar o código HTTP e o smoke test nem rodou.
+
+**Verificação no painel da Discloud (navegador do usuário)**
+- App `assemble` online, 1.79 GB / 2.25 GB; logs mostram o servidor iniciado às 21:54:41 (BRT), "Laya aquecido em 15 s" e `GET /health` 200. O container novo subiu cerca de 40 s depois de o `curl` do job ter desistido (21:54:03): o build seguiu do lado da Discloud.
+- O deploy do PR #3 aparece na Atividade como "foi alterado com sucesso" (21:54); os dois anteriores (PR #1 e #2) aparecem com "Ver log do erro", os mesmos erros vistos no GitHub.
+- As variáveis de ambiente do painel foram preservadas pelo commit via API (o app subiu com `FIREBASE_SERVICE_ACCOUNT_JSON`, `UVICORN_PORT` etc.); o comando de início do painel é `uvicorn main:app --host 0.0.0.0 --port 8080`.
+- **Achado:** em Configurações → Integração com GitHub o **Auto-deploy do app `assemble` continua ativo** (branch `main`). A Atividade registra um "Um novo commit foi feito no repositório" a cada merge (21:34, 21:41, 21:51). Enquanto estiver ligado, a Discloud publica sem esperar a CI e o requisito "CD só se a CI passar" não vale.
+
+**Problemas encontrados**
+1. O passo de envio abortava com resposta não JSON do proxy e o job ficava vermelho com o app no ar.
+2. O smoke test em `/health` podia dar verde com o container antigo ainda respondendo.
+3. Auto-deploy nativo da Discloud ainda ligado.
+
+**Alterações realizadas**: a lógica de deploy foi movida para `.github/scripts/discloud-deploy.sh` (`commit` e `wait-ready`). O `commit` registra o código HTTP, mostra o corpo sem depender de `jq` e só tolera 502/503/504/524 e estouro de tempo do `curl`; o `wait-ready` exige que `startedAt` (de `GET /v2/app/assemble/status`) seja posterior ao envio e que `/health` responda. O script foi testado localmente contra um servidor Discloud simulado em seis cenários (proxy 504, commit 400, app sem reiniciar, status ilegível, `/health` 503, estouro de tempo do `curl`): todos se comportaram como esperado. O comportamento real da API de status só se confirma no primeiro run na `main`.
+
 <!-- Próximas interações: registrar aqui, uma por uma, conforme acontecerem. -->
 
 (O texto do Prompt 1 acima mantém a URL `.app`, como foi de fato enviado.)

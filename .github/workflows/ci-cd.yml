@@ -93,29 +93,12 @@ jobs:
       - name: Enviar o commit à Discloud
         env:
           DISCLOUD_API_TOKEN: ${{ secrets.DISCLOUD_API_TOKEN }}
-        run: |
-          test -n "$DISCLOUD_API_TOKEN" \
-            || { echo "::error::Secret DISCLOUD_API_TOKEN não configurado"; exit 1; }
-          http_code=$(curl --silent --show-error --max-time 900 \
-            --output response.json --write-out '%{http_code}' \
-            -X PUT -H "api-token: $DISCLOUD_API_TOKEN" \
-            -F "file=@$RUNNER_TEMP/app.zip" \
-            "$DISCLOUD_API_URL/app/$DISCLOUD_APP_ID/commit")
-          jq . response.json
-          test "$http_code" = "200" \
-            || { echo "::error::A Discloud respondeu HTTP $http_code"; exit 1; }
+        run: bash .github/scripts/discloud-deploy.sh commit "$RUNNER_TEMP/app.zip"
 
-      # O Laya leva um tempo para aquecer depois do boot: tenta por até 10 minutos.
-      - name: Smoke test em /health
-        run: |
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error --max-time 15 "$APP_URL/health"; then
-              echo
-              echo "API respondendo na tentativa $attempt"
-              exit 0
-            fi
-            echo "Tentativa $attempt/30 sem resposta; aguardando 20 s"
-            sleep 20
-          done
-          echo "::error::$APP_URL/health não respondeu após o deploy"
-          exit 1
+      # O build com torch passa de 2 minutos e o proxy da Discloud corta a resposta antes; por
+      # isso o resultado vem daqui: o app precisa ter reiniciado depois do envio e responder
+      # em /health (até 12 minutos, o Laya demora a aquecer).
+      - name: Esperar o app reiniciar e responder
+        env:
+          DISCLOUD_API_TOKEN: ${{ secrets.DISCLOUD_API_TOKEN }}
+        run: bash .github/scripts/discloud-deploy.sh wait-ready
