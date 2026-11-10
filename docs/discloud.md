@@ -16,9 +16,9 @@ No painel da Discloud, registre o subdomínio `assemble` antes do primeiro deplo
 
 ## 2. Deploy pelo GitHub Actions
 
-O deploy sai do workflow `.github/workflows/ci-cd.yml`: a cada push na `main`, só depois de `test` e `firestore-rules` passarem, o job `deploy` monta um zip do commit (sem o que o `.discloudignore` tira), envia pela API (`PUT /v2/app/assemble/commit`) e espera o app reiniciar e responder em `/health`. A lógica fica em `.github/scripts/discloud-deploy.sh`.
+O deploy sai do workflow `.github/workflows/ci-cd.yml`: a cada push na `main`, só depois de `test` e `firestore-rules` passarem, o job `deploy` monta um zip do commit (sem o que o `.discloudignore` tira), envia pela API (`PUT /v2/app/assemble/commit`) e espera o app reiniciar e ficar pronto em `/ready`. A lógica fica em `.github/scripts/discloud-deploy.sh`.
 
-- O build com torch passa de 2 minutos e o proxy da Discloud corta a resposta antes (502/503/504/524 ou tempo esgotado). Nesses casos o script segue para a espera: consulta `GET /v2/app/assemble/status` até `startedAt` ser posterior ao envio e `/health` responder (até 12 minutos). Qualquer outro código diferente de 200 no commit falha o job.
+- O build com torch passa de 2 minutos e o proxy da Discloud corta a resposta antes (502/503/504/524 ou tempo esgotado). Nesses casos o script segue para a espera: consulta `GET /v2/app/assemble/status` até `startedAt` ser posterior ao envio e `/ready` responder 200 com JSON e o Laya aquecido (até 12 minutos; o proxy serve páginas HTML de erro durante o boot, por isso o corpo é validado). Qualquer outro código diferente de 200 no commit falha o job.
 - Crie o secret `DISCLOUD_API_TOKEN` em Settings → Secrets and variables → Actions (o token vem do painel da Discloud).
 - Desligue o **Auto-deploy** do app `assemble` em Discloud → Configurações → *Integração com GitHub* (interruptor da coluna "Auto-deploy"); com ele ligado a Discloud publica cada push na `main` sem esperar a CI.
 - Se a URL pública não for `https://assemble.discloud.dev`, defina a variável `DISCLOUD_APP_URL` em Settings → Secrets and variables → Actions → Variables.

@@ -93,6 +93,24 @@ print("yes" if started.timestamp() >= float(sys.argv[2]) - float(sys.argv[3]) el
 PY
 }
 
+# Pronto = /ready com HTTP 200 e JSON com o Laya aquecido ("warm") ou desligado ("off").
+# Durante o boot o proxy da Discloud serve páginas HTML de erro que chegaram a passar por
+# saúde só pelo código HTTP; por isso o corpo é validado.
+app_ready() {
+  local body code
+  body="$(mktemp)"
+  code="$(curl --silent --max-time 15 --output "$body" --write-out '%{http_code}' \
+    "$APP_URL/ready")" || return 1
+  [ "$code" = "200" ] || return 1
+  "$PYTHON" - "$body" <<'PY' 2>/dev/null
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+sys.exit(0 if data.get("laya") in ("warm", "off") else 1)
+PY
+}
+
 wait_ready() {
   local started body attempt restarted warned=0
   [ -f "$STARTED_FILE" ] || { echo "::error::sem registro do início do deploy"; exit 1; }
@@ -101,18 +119,17 @@ wait_ready() {
   for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
     restarted="$(restart_state "$body" "$started")"
     if [ "$restarted" = "unknown" ] && [ "$warned" -eq 0 ]; then
-      echo "::warning::Status da Discloud sem startedAt legível; confirmando só pelo /health"
+      echo "::warning::Status da Discloud sem startedAt legível; confirmando só pelo /ready"
       warned=1
     fi
-    if [ "$restarted" != "no" ] && curl --fail --silent --show-error --max-time 15 "$APP_URL/health"; then
-      echo
-      echo "App respondendo na tentativa $attempt (reiniciou depois do deploy: $restarted)"
+    if [ "$restarted" != "no" ] && app_ready; then
+      echo "App pronto em $APP_URL/ready na tentativa $attempt (reiniciou depois do deploy: $restarted)"
       return 0
     fi
     echo "Tentativa $attempt/$MAX_ATTEMPTS: reiniciou=$restarted; aguardando ${POLL_INTERVAL}s"
     sleep "$POLL_INTERVAL"
   done
-  echo "::error::O app não reiniciou e respondeu em $APP_URL/health a tempo"
+  echo "::error::O app não reiniciou e ficou pronto em $APP_URL/ready a tempo"
   exit 1
 }
 
