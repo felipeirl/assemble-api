@@ -84,6 +84,18 @@ pyproject.toml. Entregue o YAML completo e explique cada decisão não óbvia.
 
 **Alterações realizadas**: a lógica de deploy foi movida para `.github/scripts/discloud-deploy.sh` (`commit` e `wait-ready`). O `commit` registra o código HTTP, mostra o corpo sem depender de `jq` e só tolera 502/503/504/524 e estouro de tempo do `curl`; o `wait-ready` exige que `startedAt` (de `GET /v2/app/assemble/status`) seja posterior ao envio e que `/health` responda. O script foi testado localmente contra um servidor Discloud simulado em seis cenários (proxy 504, commit 400, app sem reiniciar, status ilegível, `/health` 503, estouro de tempo do `curl`): todos se comportaram como esperado. O comportamento real da API de status só se confirma no primeiro run na `main`.
 
+### Interação 5: o run verde passou por uma página de erro do proxy
+
+**Prompt**: o usuário mandou verificar o merge do PR #4 ("mergeado"), depois de pedir antes que eu desligasse o Auto-deploy ("Sim, desligar"). Ao achar o furo abaixo, a IA o relatou e o usuário respondeu: "Sim, ajustar".
+
+**Ação feita pela IA com autorização do usuário**: no painel da Discloud (navegador do usuário), desliguei só o interruptor **Auto-deploy do app `assemble`** (Configurações → Integração com GitHub); confirmei depois de recarregar ("Inativo"). Os apps `quimia-*` não foram tocados.
+
+**Resultado do run (`bcc6717`)**: os três jobs verdes. A Atividade da Discloud mostra uma única entrada às 22:07, "foi alterado com sucesso", sem o evento "novo commit" do GitHub: o Auto-deploy desligado surtiu efeito e só o pipeline publicou. A API respondeu HTTP 200 ao commit em 15 s.
+
+**Problema encontrado**: o `wait-ready` passou na 1ª tentativa às 22:07:48 (BRT) e o log do app mostra o servidor iniciando às 22:07:49. O corpo recebido pelo job era a página HTML "Erro interno" do proxy, com HTTP 200, e o `curl --fail` a aceitou como saúde. O verde veio de uma página de erro, 1 s antes de o app subir; com o container quebrado, o pipeline poderia ter dado verde. O teste simulado do PR #4 não cobria esse caso.
+
+**Alterações realizadas**: `wait-ready` passa a usar `/ready` e só aceita HTTP 200 com JSON cujo campo `laya` seja `warm` ou `off` (o app devolve 503 enquanto o Laya carrega). O teste simulado ganhou dois cenários: HTML de erro com HTTP 200 (G) e JSON 200 com `laya: loading` (H). Rodei os oito cenários no script novo (todos como esperado) e G e H no script antigo, para provar a regressão: o antigo dava verde nos dois, o novo falha.
+
 <!-- Próximas interações: registrar aqui, uma por uma, conforme acontecerem. -->
 
 (O texto do Prompt 1 acima mantém a URL `.app`, como foi de fato enviado.)

@@ -96,8 +96,8 @@ jobs:
         run: bash .github/scripts/discloud-deploy.sh commit "$RUNNER_TEMP/app.zip"
 
       # O build com torch passa de 2 minutos e o proxy da Discloud corta a resposta antes; por
-      # isso o resultado vem daqui: o app precisa ter reiniciado depois do envio e responder
-      # em /health (até 12 minutos, o Laya demora a aquecer).
+      # isso o resultado vem daqui: o app precisa ter reiniciado depois do envio e estar pronto
+      # em /ready, com JSON e o Laya aquecido (até 12 minutos).
       - name: Esperar o app reiniciar e responder
         env:
           DISCLOUD_API_TOKEN: ${{ secrets.DISCLOUD_API_TOKEN }}
