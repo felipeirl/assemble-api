@@ -37,11 +37,27 @@ pyproject.toml. Entregue o YAML completo e explique cada decisão não óbvia.
 
 **Resultado**: `.github/workflows/ci-cd.yml` com os jobs `test`, `firestore-rules` e `deploy`. O zip é montado com `git archive` e exclusões, enviado por `curl` à API de commit, seguido de smoke test em `/health`.
 
-**Problema encontrado**: ainda não executado no GitHub.
+**Problema encontrado**: nenhum no PR #1 (CI verde; `deploy` pulado, como esperado em `pull_request`). Os problemas apareceram só na execução na `main` (Interação 2).
 
 **Alteração realizada**: `deploy.yml` (Cloud Run manual) movido para `_archive/deploy-cloud-run.yml`; `docs/discloud.md` passo 2 reescrito.
 
+### Interação 2: falha do deploy na `main`
+
+**Prompt**: após o merge do PR #1, o usuário avisou que o merge estava feito; a IA consultou a execução (`gh run view`) e o log do job `deploy`. Pedido do usuário depois do diagnóstico: "Sim, corrigir".
+
+**Resultado**: CI verde (`test`, `firestore-rules`); `deploy` falhou com HTTP 400. Token e `appID` foram aceitos e a Discloud iniciou o build, mas o builder dela faz `COPY app/requirements.txt` e o repositório nunca teve esse arquivo. A API seguiu no ar na versão anterior.
+
+**Problemas encontrados**
+1. Falta de `requirements.txt` no zip (a `docs/discloud.md` já avisava; o job não tratava).
+2. URL pública errada: o padrão no workflow e nos docs era `https://assemble.discloud.app`, que não resolve; a correta é `https://assemble.discloud.dev` (conferido com `curl`: `{"status":"ok"}`). O smoke test teria falhado por isso.
+
+**Alterações realizadas**: o job `deploy` gera `requirements.txt` (conteúdo `uv`; o `BUILD` do `discloud.config` já sincroniza tudo pelo `uv.lock`) e o inclui no zip, com checagem de presença; padrão de `APP_URL` e `docs/discloud.md` corrigidos para `.dev`.
+
+**Alterações manuais do usuário**: criar o secret `DISCLOUD_API_TOKEN`, desligar o deploy automático nativo da Discloud e fazer o merge do PR #1.
+
 <!-- Próximas interações: registrar aqui, uma por uma, conforme acontecerem. -->
+
+(O texto do Prompt 1 acima mantém a URL `.app`, como foi de fato enviado.)
 
 ## Respostas finais (preencher ao concluir)
 

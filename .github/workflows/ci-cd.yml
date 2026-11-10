@@ -1,6 +1,6 @@
 # CI a cada push e pull request na main; CD na Discloud só após um push na main com a CI verde.
 # Segredo necessário (Settings → Secrets and variables → Actions): DISCLOUD_API_TOKEN.
-# Variável opcional: DISCLOUD_APP_URL (padrão: https://assemble.discloud.app).
+# Variável opcional: DISCLOUD_APP_URL (padrão: https://assemble.discloud.dev).
 # O deploy automático nativo da Discloud (integração com o GitHub) precisa estar desligado,
 # senão ele publica sem esperar esta CI: docs/discloud.md.
 name: CI/CD
@@ -59,7 +59,7 @@ jobs:
     env:
       DISCLOUD_APP_ID: assemble
       DISCLOUD_API_URL: https://api.discloud.app/v2
-      APP_URL: ${{ vars.DISCLOUD_APP_URL || 'https://assemble.discloud.app' }}
+      APP_URL: ${{ vars.DISCLOUD_APP_URL || 'https://assemble.discloud.dev' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -70,7 +70,11 @@ jobs:
             ':(exclude).git*' ':(exclude).github' ':(exclude)docs' ':(exclude)tests' \
             ':(exclude)firestore-tests' ':(exclude)scripts' ':(exclude)backup-pre-reescrita' \
             ':(exclude)Dockerfile' ':(exclude).dockerignore' ':(exclude)_archive'
-          for required in discloud.config main.py pyproject.toml uv.lock; do
+          # O builder da Discloud exige um requirements.txt na raiz. O BUILD do discloud.config
+          # já instala o uv e sincroniza tudo pelo uv.lock; este arquivo só satisfaz o builder.
+          printf 'uv\n' > requirements.txt
+          zip -q "$RUNNER_TEMP/app.zip" requirements.txt
+          for required in discloud.config main.py pyproject.toml uv.lock requirements.txt; do
             unzip -l "$RUNNER_TEMP/app.zip" | grep -q " $required\$" \
               || { echo "::error::$required ausente do zip"; exit 1; }
           done

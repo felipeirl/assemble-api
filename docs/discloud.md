@@ -1,6 +1,6 @@
 # Deploy na Discloud
 
-A API roda na Discloud como site em `https://assemble.discloud.app`. A configuração fica em `discloud.config`, na raiz; `.discloudignore` tira do envio o que não roda em produção (testes, docs, scripts, logs).
+A API roda na Discloud como site em `https://assemble.discloud.dev`. A configuração fica em `discloud.config`, na raiz; `.discloudignore` tira do envio o que não roda em produção (testes, docs, scripts, logs).
 
 Exige o plano Platinum ou superior (sites só sobem a partir dele). Com o torch e o Laya, a API usa perto de 3 GB de RAM; o `discloud.config` reserva 4 GB.
 
@@ -20,7 +20,7 @@ O deploy sai do workflow `.github/workflows/ci-cd.yml`: a cada push na `main`, s
 
 - Crie o secret `DISCLOUD_API_TOKEN` em Settings → Secrets and variables → Actions (o token vem do painel da Discloud).
 - Desligue o deploy automático nativo da integração com o GitHub (painel da Discloud, ou *Manage installations* no GitHub); senão ele publica sem esperar a CI.
-- Se a URL pública não for `https://assemble.discloud.app`, defina a variável `DISCLOUD_APP_URL` em Settings → Secrets and variables → Actions → Variables.
+- Se a URL pública não for `https://assemble.discloud.dev`, defina a variável `DISCLOUD_APP_URL` em Settings → Secrets and variables → Actions → Variables.
 
 ## 3. Variáveis de ambiente
 
@@ -40,12 +40,12 @@ Cadastre no painel, no momento do envio. A Discloud gera o `.env` na hora de rod
 ## 4. Conferir
 
 ```bash
-curl -s https://assemble.discloud.app/health
+curl -s https://assemble.discloud.dev/health
 ```
 
 Deve responder `{"status":"ok"}`. Depois disso:
 
-- no app, troque o `BACKEND_URL` do `local.properties` para `https://assemble.discloud.app`;
+- no app, troque o `BACKEND_URL` do `local.properties` para `https://assemble.discloud.dev`;
 - no GitHub da API, troque o secret `ASSEMBLE_API_URL` do workflow `Jobs` para o mesmo endereço.
 
 ## Se o deploy falhar
@@ -53,5 +53,5 @@ Deve responder `{"status":"ok"}`. Depois disso:
 - **Porta 8000 no log:** a Discloud roda o próprio `uvicorn main:app` e ignora o `START`. Se o site não responder, cadastre `UVICORN_PORT=8080` nas variáveis de ambiente (o uvicorn lê a porta dessa variável).
 - **`Permission denied: '/.cache'`:** o `main.py` da raiz já manda o cache do Hugging Face para a pasta do projeto; se aparecer, o app não subiu pelo `main.py`.
 
-- **Falta de `requirements.txt`:** a documentação da Discloud não diz se um app Python sobe sem ele. Se o log reclamar, gere um a partir do lock (`uv export --no-dev --no-hashes -o requirements.txt`) e deixe o `BUILD` como está.
+- **`requirements.txt`:** o deploy pela API exige o arquivo na raiz do zip (o builder da Discloud copia `requirements.txt`). O workflow `ci-cd.yml` gera um mínimo (`uv`) na hora do envio; o `BUILD` do `discloud.config` instala o resto pelo `uv.lock`. O arquivo não é versionado.
 - **Memória:** se o processo morrer ao carregar o Laya, aumente o `RAM`.
